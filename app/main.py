@@ -3,7 +3,7 @@ import os
 from fastapi import FastAPI
 from neo4j import GraphDatabase
 
-app = FastAPI()
+app = FastAPI(title="ADRLinter", version="0.1.0")
 
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://neo4j:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
