@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+
+# uv
+uv.lock
+
+# Environment
+.env
+
+# Neo4j
+neo4j_data/
+
+# Docker
+*.pid
