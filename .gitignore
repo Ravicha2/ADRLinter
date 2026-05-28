@@ -15,3 +15,9 @@ neo4j_data/
 
 # Docker
 *.pid
+
+# agent doc
+.claude
+
+# seeded repos
+repos
