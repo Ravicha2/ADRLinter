@@ -21,3 +21,4 @@ neo4j_data/
 
 # seeded repos
 repos.DS_Store
+repos/
