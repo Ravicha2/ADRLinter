@@ -101,7 +101,7 @@ def walk_imports(node, module_fqn: str, known_fqns: set[str], edges: list[Edge])
                         elif name_node.type == "wildcard_import":
                             if module_name in known_fqns:
                                 edges.append(Edge(source=module_fqn, target=module_name, kind="IMPORTS"))
-        return  # fully handled, skip recursion into this node's children
+        return  
 
     elif node.type == "import_statement":
         for child in node.children:
@@ -110,13 +110,13 @@ def walk_imports(node, module_fqn: str, known_fqns: set[str], edges: list[Edge])
                 if imported in known_fqns:
                     edges.append(Edge(source=module_fqn, target=imported, kind="IMPORTS"))
             elif child.type == "aliased_import":
-                # "import X as Y" - resolve X from the original name
+                # "import X as Y"
                 real_name = child.child_by_field_name("name")
                 if real_name is not None:
                     imported = real_name.text.decode("utf-8")
                     if imported in known_fqns:
                         edges.append(Edge(source=module_fqn, target=imported, kind="IMPORTS"))
-        return  # fully handled, skip recursion into this node's children
+        return  
 
     # recurse into children for all other node types
     for child in node.children:
@@ -151,6 +151,42 @@ def resolve_call(callee_text: str, caller_fqn:str, known_fqns: set[str]) -> str 
             return fqn
     return None
 
+def walk_inherits(node, module_fqn:str, known_fqns: set[str], edges: list[Edge]):
+    """Recursively walk AST to extract INHERITS edges from class definition"""
+    if node.type == "class_definition":
+        name_node = node.child_by_field_name("name")
+        if name_node is None:
+            return 
+        class_name = name_node.text.decode("utf-8")
+        class_fqn = f"{module_fqn}.{class_name}"
+
+        arg_list = node.child_by_field_name("superclass")
+        if arg_list is not None:
+            for child in arg_list.children:
+                if child.type == "argument_list":
+                    for arg in child.children:
+                        if arg.type in ("identifier", "attribute"):
+                            base_text = arg.text.decode("utf-8")
+                            resolved = resolve_base_class(base_text, known_fqns)
+                            if resolved is not None and class_fqn in known_fqns:
+                                edges.append(Edge(source=class_fqn, target=resolved, kind="INHERITS"))
+
+    elif node.type == "decorated_definition":
+        for child in node.children:
+            walk_inherits(child, module_fqn, known_fqns, edges)
+    
+    else:
+        for child in node.children:
+            walk_inherits(child, module_fqn, known_fqns, edges)
+
+def resolve_base_class(base_text:str, known_fqns: set[str]) -> str | None:
+    """Resolve a base class reference to a known FQN"""
+    for fqn in known_fqns:
+        if fqn == base_text or fqn.endswith(f".{base_text}"):
+            return fqn
+    return None
+
+
 def parse_file(py_file: Path, module_fqn: str, rel_path: str, source: bytes, known_fqns: set[str]) -> tuple[list[FQNNode], list[Edge]]:
     """Parse a single Python file and return FQN nodes and edges."""
     parser = Parser(PY_LANGUAGE)
@@ -165,6 +201,7 @@ def parse_file(py_file: Path, module_fqn: str, rel_path: str, source: bytes, kno
 
     walk_imports(root, module_fqn, known_fqns, edges)
     walk_calls(root, module_fqn, known_fqns, edges)
+    walk_inherits(root, module_fqn, known_fqns, edges)
 
     return nodes, edges
 
