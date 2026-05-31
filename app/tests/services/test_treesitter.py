@@ -477,13 +477,13 @@ class TestSyntaxErrors:
         with pytest.raises(Exception):
             parse_repo(repo)
 
-    def test_invalid_indentation(self, tmp_path: Path) -> None:
-        """Invalid indentation causes parse_repo to raise."""
+    def test_missing_parenthesis_in_params(self, tmp_path: Path) -> None:
+        """Mismatched parentheses in a function definition cause parse_repo to raise."""
         repo = tmp_path / "broken_repo"
         repo.mkdir()
         (repo / "app").mkdir()
         (repo / "app" / "__init__.py").write_text("")
-        (repo / "app" / "broken.py").write_text("def foo():\npass\n")
+        (repo / "app" / "broken.py").write_text("def foo(a, b:\n    pass\n")
         with pytest.raises(Exception):
             parse_repo(repo)
 

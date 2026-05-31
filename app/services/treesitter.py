@@ -208,14 +208,8 @@ def parse_file(source: bytes, module_fqn: str, rel_path: str) -> tuple[list[FQNN
     return nodes, edges
 
 def _has_error(node) -> bool:
-    """Recursively check if an AST subtree contains ERROR nodes"""
-    if node.type == "ERROR":
-        return True
-    if node.has_error:
-        for child in node.children:
-            if _has_error(child):
-                return True
-    return False
+    """Check if the AST has any errors."""
+    return node.has_error
 
 
 

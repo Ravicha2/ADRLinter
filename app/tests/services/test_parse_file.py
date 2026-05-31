@@ -180,9 +180,9 @@ class TestSyntaxErrors:
         with pytest.raises(Exception):
             parse_file(source, module_fqn="app.broken", rel_path="app/broken.py")
 
-    def test_invalid_indentation(self) -> None:
-        """A file with invalid indentation raises an error."""
-        source = b"def foo():\npass\n"
+    def test_missing_parenthesis_in_params(self) -> None:
+        """A function with mismatched parentheses raises an error."""
+        source = b"def foo(a, b:\n    pass\n"
         with pytest.raises(Exception):
             parse_file(source, module_fqn="app.broken", rel_path="app/broken.py")
 
