@@ -20,4 +20,4 @@ neo4j_data/
 .claude
 
 # seeded repos
-repos
+repos.DS_Store
