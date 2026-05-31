@@ -333,9 +333,9 @@ class TestFlaskRepoIntegration:
     def test_flask_module_nodes(self, flask_repo: Path) -> None:
         """Key module FQNs from the flask repo are present."""
         adg = parse_repo(flask_repo)
-        # These modules should exist based on the flask sample structure
+        # config.py is at root level, so FQN is "config" not "app.config"
         assert _find_node(adg, "app") is not None
-        assert _find_node(adg, "app.config") is not None
+        assert _find_node(adg, "config") is not None
         assert _find_node(adg, "app.routes") is not None
 
     def test_flask_class_nodes(self, flask_repo: Path) -> None:

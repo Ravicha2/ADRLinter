@@ -86,4 +86,4 @@ def sample_repo(tmp_path: Path) -> Path:
 @pytest.fixture
 def flask_repo() -> Path:
     """Path to the flask sample repository in repos/."""
-    return Path(__file__).resolve().parents[3] / "repos" / "flask"
+    return Path(__file__).resolve().parents[2] / "repos" / "flask"

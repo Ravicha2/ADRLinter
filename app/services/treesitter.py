@@ -5,9 +5,9 @@ from __future__ import annotations
 from pathlib import Path
 import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
-from models import ADG, Edge, FQNNode
+from services.models import ADG, Edge, FQNNode
 
-PY_LANGUGAGE = Language(tspython.language())
+PY_LANGUAGE = Language(tspython.language())
 
 def file_path_to_module_fqn(rel_path:str) -> str:
     """convert relative path to module FQN"""
@@ -67,31 +67,41 @@ def walk_imports(node, module_fqn: str, known_fqns: set[str], edges: list[Edge])
 
     if node.type == "import_from_statement":
         module_node = node.child_by_field_name("module_name")
-        if module_node is None:
-            return
-        module_name = module_node.text.decode("utf-8")
+        if module_node is not None:
+            module_name = module_node.text.decode("utf-8")
 
-        for child in node.children:
-            if child.type == "dotted_name" and child != module_node:
-                imported = child.text.decode("utf-8")
-                target_fqn = f"{module_name}.{imported}"
-                if target_fqn in known_fqns:
-                    edges.append(Edge(source=module_fqn, target=target_fqn, kind="IMPORTS"))
-                elif module_name in known_fqns:
-                    edges.append(Edge(source=module_fqn, target=module_name, kind="IMPORTS"))
+            for child in node.children:
+                if child.type == "dotted_name" and child != module_node:
+                    imported = child.text.decode("utf-8")
+                    target_fqn = f"{module_name}.{imported}"
+                    if target_fqn in known_fqns:
+                        edges.append(Edge(source=module_fqn, target=target_fqn, kind="IMPORTS"))
+                    elif module_name in known_fqns:
+                        edges.append(Edge(source=module_fqn, target=module_name, kind="IMPORTS"))
 
-            elif child.type == "import_list":
-                for name_node in child.children:
-                    if name_node.type == "dotted_name":
-                        imported = name_node.text.decode("utf-8")
-                        target_fqn = f"{module_name}.{imported}"
-                        if target_fqn in known_fqns:
-                            edges.append(Edge(source=module_fqn, target=target_fqn, kind="IMPORTS"))
-                        elif module_name in known_fqns:
-                            edges.append(Edge(source=module_fqn, target=module_name, kind="IMPORTS"))
-                    elif name_node.type == "wildcard_import":
-                        if module_name in known_fqns:
-                            edges.append(Edge(source=module_fqn, target=module_name, kind="IMPORTS"))
+                elif child.type == "import_list":
+                    for name_node in child.children:
+                        if name_node.type == "dotted_name":
+                            imported = name_node.text.decode("utf-8")
+                            target_fqn = f"{module_name}.{imported}"
+                            if target_fqn in known_fqns:
+                                edges.append(Edge(source=module_fqn, target=target_fqn, kind="IMPORTS"))
+                            elif module_name in known_fqns:
+                                edges.append(Edge(source=module_fqn, target=module_name, kind="IMPORTS"))
+                        elif name_node.type == "aliased_import":
+                            # "from X import Y as Z"
+                            real_name = name_node.child_by_field_name("name")
+                            if real_name is not None:
+                                imported = real_name.text.decode("utf-8")
+                                target_fqn = f"{module_name}.{imported}"
+                                if target_fqn in known_fqns:
+                                    edges.append(Edge(source=module_fqn, target=target_fqn, kind="IMPORTS"))
+                                elif module_name in known_fqns:
+                                    edges.append(Edge(source=module_fqn, target=module_name, kind="IMPORTS"))
+                        elif name_node.type == "wildcard_import":
+                            if module_name in known_fqns:
+                                edges.append(Edge(source=module_fqn, target=module_name, kind="IMPORTS"))
+        return  # fully handled, skip recursion into this node's children
 
     elif node.type == "import_statement":
         for child in node.children:
@@ -99,15 +109,51 @@ def walk_imports(node, module_fqn: str, known_fqns: set[str], edges: list[Edge])
                 imported = child.text.decode("utf-8")
                 if imported in known_fqns:
                     edges.append(Edge(source=module_fqn, target=imported, kind="IMPORTS"))
+            elif child.type == "aliased_import":
+                # "import X as Y" - resolve X from the original name
+                real_name = child.child_by_field_name("name")
+                if real_name is not None:
+                    imported = real_name.text.decode("utf-8")
+                    if imported in known_fqns:
+                        edges.append(Edge(source=module_fqn, target=imported, kind="IMPORTS"))
+        return  # fully handled, skip recursion into this node's children
 
-    # recurse into children for all node types
+    # recurse into children for all other node types
     for child in node.children:
         walk_imports(child, module_fqn, known_fqns, edges)
 
+def walk_calls(node, caller_fqn: str, known_fqns: set[str], edges: list[Edge]):
+    """Recursively walk AST to extract CALLS edges from function call expressions."""
+    if node.type == "call":
+        callee_node = node.child(0)
+        if callee_node is not None:
+            callee_text = callee_node.text.decode("utf-8")
+            resolved = resolve_call(callee_text, caller_fqn, known_fqns)
+            if resolved is not None:
+                edges.append(Edge(source=caller_fqn, target=resolved, kind="CALLS"))
+
+    if node.type == "function_definition":
+        name_node = node.child_by_field_name("name")
+        if name_node is not None:
+            func_name = name_node.text.decode("utf-8")
+            inner_fqn = f"{caller_fqn}.{func_name}"
+            if inner_fqn in known_fqns:
+                caller_fqn = inner_fqn
+
+    for child in node.children:
+        walk_calls(child, caller_fqn, known_fqns, edges)
+
+
+def resolve_call(callee_text: str, caller_fqn:str, known_fqns: set[str]) -> str | None:
+    """resolve a callee expression to a known FQN."""
+    for fqn in known_fqns:
+        if fqn.endswith(f".{callee_text}") or fqn == callee_text:
+            return fqn
+    return None
 
 def parse_file(py_file: Path, module_fqn: str, rel_path: str, source: bytes, known_fqns: set[str]) -> tuple[list[FQNNode], list[Edge]]:
     """Parse a single Python file and return FQN nodes and edges."""
-    parser = Parser(PY_LANGUGAGE)
+    parser = Parser(PY_LANGUAGE)
     tree = parser.parse(source)
     root = tree.root_node
 
@@ -118,6 +164,7 @@ def parse_file(py_file: Path, module_fqn: str, rel_path: str, source: bytes, kno
         walk_definitions(child, module_fqn, "module", rel_path, nodes, edges)
 
     walk_imports(root, module_fqn, known_fqns, edges)
+    walk_calls(root, module_fqn, known_fqns, edges)
 
     return nodes, edges
 
@@ -149,6 +196,11 @@ def parse_repo(repo_path: Path) -> ADG:
         module_fqns[fqn] = rel_path
     
     # parse each file to extract class/function/method nodes + CONTAIN/IMPORTS edges
+
+    # BUG: known_fqns only contains module FQNs here, not class/function/method FQNs.
+    # IMPORTS like "from app.models.user import User" can't resolve to "app.models.user.User"
+    # because that FQN hasn't been added yet. Fix: do a second pass for IMPORTS after
+    # all definition nodes are collected, or build known_fqns after parse_file loop.
     known_fqns = set(module_fqns.keys())
     for py_file in py_files:
         rel_path = str(py_file.relative_to(repo_path))
