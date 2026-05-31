@@ -1,7 +1,7 @@
-"""Tests for parse_file: extract FQN nodes from a single Python file.
+"""Tests for parse_file: extract FQN nodes and CONTAINS edges from a single Python file.
 
 Public interface under test:
-    parse_file(source: bytes, module_fqn: str, rel_path: str) -> list[FQNNode]
+    parse_file(source: bytes, module_fqn: str, rel_path: str) -> tuple[list[FQNNode], list[Edge]]
 
 Each test class covers one behavioral aspect of parse_file.
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from services.models import FQNNode
+from services.models import Edge, FQNNode
 from services.treesitter import parse_file
 
 
@@ -43,7 +43,7 @@ class TestClassExtraction:
     def test_class_node(self) -> None:
         """A class definition produces a node with kind='class'."""
         source = b"class User:\n    pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         user = _find_node(nodes, "app.models.user.User")
         assert user is not None
         assert user.kind == "class"
@@ -52,20 +52,20 @@ class TestClassExtraction:
     def test_class_fqn_includes_module(self) -> None:
         """Class FQN is module_fqn + class name."""
         source = b"class AuthMiddleware:\n    pass\n"
-        nodes = parse_file(source, module_fqn="app.middleware.auth", rel_path="app/middleware/auth.py")
+        nodes, _ = parse_file(source, module_fqn="app.middleware.auth", rel_path="app/middleware/auth.py")
         assert _find_node(nodes, "app.middleware.auth.AuthMiddleware") is not None
 
     def test_multiple_classes(self) -> None:
         """Multiple classes in one file each produce a node."""
         source = b"class User:\n    pass\n\nclass Admin:\n    pass\n"
-        nodes = parse_file(source, module_fqn="app.models", rel_path="app/models.py")
+        nodes, _ = parse_file(source, module_fqn="app.models", rel_path="app/models.py")
         assert _find_node(nodes, "app.models.User") is not None
         assert _find_node(nodes, "app.models.Admin") is not None
 
     def test_class_line_range(self) -> None:
         """Class node has line_start and line_end spanning the definition."""
         source = b"class User:\n    def find(self):\n        pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         user = _find_node(nodes, "app.models.user.User")
         assert user is not None
         assert user.line_start >= 0
@@ -83,7 +83,7 @@ class TestMethodExtraction:
     def test_method_node(self) -> None:
         """A method inside a class produces a node with kind='method'."""
         source = b"class User:\n    def find(self):\n        pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         find = _find_node(nodes, "app.models.user.User.find")
         assert find is not None
         assert find.kind == "method"
@@ -91,14 +91,14 @@ class TestMethodExtraction:
     def test_multiple_methods(self) -> None:
         """Multiple methods in a class each produce a node."""
         source = b"class User:\n    def find(self):\n        pass\n\n    def all(self):\n        pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         assert _find_node(nodes, "app.models.user.User.find") is not None
         assert _find_node(nodes, "app.models.user.User.all") is not None
 
     def test_method_line_range_within_class(self) -> None:
         """Method line ranges fall within the parent class range."""
         source = b"class User:\n    def find(self):\n        pass\n\n    def all(self):\n        pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         user = _find_node(nodes, "app.models.user.User")
         find = _find_node(nodes, "app.models.user.User.find")
         assert user is not None
@@ -109,7 +109,7 @@ class TestMethodExtraction:
     def test_staticmethod(self) -> None:
         """@staticmethod decorated methods are still extracted as methods."""
         source = b"class User:\n    @staticmethod\n    def find(user_id):\n        return {}\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         assert _find_node(nodes, "app.models.user.User.find") is not None
         assert _find_node(nodes, "app.models.user.User.find").kind == "method"
 
@@ -125,7 +125,7 @@ class TestFunctionExtraction:
     def test_function_node(self) -> None:
         """A top-level function produces a node with kind='function'."""
         source = b"def get_user(user_id):\n    return {}\n"
-        nodes = parse_file(source, module_fqn="app.services.user_service", rel_path="app/services/user_service.py")
+        nodes, _ = parse_file(source, module_fqn="app.services.user_service", rel_path="app/services/user_service.py")
         func = _find_node(nodes, "app.services.user_service.get_user")
         assert func is not None
         assert func.kind == "function"
@@ -133,13 +133,13 @@ class TestFunctionExtraction:
     def test_function_is_not_method(self) -> None:
         """Top-level functions have kind='function', not 'method'."""
         source = b"def helper():\n    pass\n"
-        nodes = parse_file(source, module_fqn="app.utils", rel_path="app/utils.py")
+        nodes, _ = parse_file(source, module_fqn="app.utils", rel_path="app/utils.py")
         assert _find_node(nodes, "app.utils.helper").kind == "function"
 
     def test_multiple_functions(self) -> None:
         """Multiple top-level functions each produce a node."""
         source = b"def create():\n    pass\n\ndef delete():\n    pass\n"
-        nodes = parse_file(source, module_fqn="app.ops", rel_path="app/ops.py")
+        nodes, _ = parse_file(source, module_fqn="app.ops", rel_path="app/ops.py")
         assert _find_node(nodes, "app.ops.create") is not None
         assert _find_node(nodes, "app.ops.delete") is not None
 
@@ -155,13 +155,13 @@ class TestNestedClass:
     def test_nested_class(self) -> None:
         """A class defined inside another class produces a nested FQN."""
         source = b"class User:\n    class Meta:\n        pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         assert _find_node(nodes, "app.models.user.User.Meta") is not None
 
     def test_nested_class_method(self) -> None:
         """A method inside a nested class has the full nested FQN."""
         source = b"class User:\n    class Meta:\n        def ordering(self):\n            pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         assert _find_node(nodes, "app.models.user.User.Meta.ordering") is not None
         assert _find_node(nodes, "app.models.user.User.Meta.ordering").kind == "method"
 
@@ -204,7 +204,7 @@ class TestByteOffsets:
     def test_class_byte_offsets(self) -> None:
         """Class node has start_byte and end_byte populated."""
         source = b"class User:\n    pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         user = _find_node(nodes, "app.models.user.User")
         assert user is not None
         assert user.start_byte >= 0
@@ -213,7 +213,7 @@ class TestByteOffsets:
     def test_method_byte_offsets(self) -> None:
         """Method node has start_byte and end_byte populated."""
         source = b"class User:\n    def find(self):\n        pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         find = _find_node(nodes, "app.models.user.User.find")
         assert find is not None
         assert find.start_byte >= 0
@@ -222,7 +222,7 @@ class TestByteOffsets:
     def test_byte_offsets_slice_to_source(self) -> None:
         """Slicing source[start_byte:end_byte] returns the exact node text."""
         source = b"class User:\n    def find(self):\n        return {}\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         find = _find_node(nodes, "app.models.user.User.find")
         assert find is not None
         node_text = source[find.start_byte:find.end_byte]
@@ -232,7 +232,7 @@ class TestByteOffsets:
     def test_method_byte_offsets_within_class(self) -> None:
         """Method byte offsets fall within the parent class byte offsets."""
         source = b"class User:\n    def find(self):\n        pass\n"
-        nodes = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
+        nodes, _ = parse_file(source, module_fqn="app.models.user", rel_path="app/models/user.py")
         user = _find_node(nodes, "app.models.user.User")
         find = _find_node(nodes, "app.models.user.User.find")
         assert user is not None
@@ -252,7 +252,7 @@ class TestNoDuplicates:
     def test_no_duplicate_fqns(self) -> None:
         """Each FQN appears at most once in the node list."""
         source = b"class User:\n    def find(self):\n        pass\n\ndef helper():\n    pass\n"
-        nodes = parse_file(source, module_fqn="app.mixed", rel_path="app/mixed.py")
+        nodes, _ = parse_file(source, module_fqn="app.mixed", rel_path="app/mixed.py")
         fqns = [n.fqn for n in nodes]
         assert len(fqns) == len(set(fqns))
 
@@ -268,18 +268,18 @@ class TestEmptyFile:
     def test_empty_file(self) -> None:
         """An empty file produces no FQN nodes."""
         source = b""
-        nodes = parse_file(source, module_fqn="app.empty", rel_path="app/empty.py")
+        nodes, _ = parse_file(source, module_fqn="app.empty", rel_path="app/empty.py")
         assert nodes == []
 
     def test_only_comments(self) -> None:
         """A file with only comments produces no FQN nodes."""
         source = b"# This is a comment\n# Another comment\n"
-        nodes = parse_file(source, module_fqn="app.comments", rel_path="app/comments.py")
+        nodes, _ = parse_file(source, module_fqn="app.comments", rel_path="app/comments.py")
         assert nodes == []
 
     def test_only_imports(self) -> None:
         """A file with only import statements produces no FQN nodes (no definitions)."""
         source = b"import os\nfrom sys import path\n"
-        nodes = parse_file(source, module_fqn="app.imports_only", rel_path="app/imports_only.py")
+        nodes, _ = parse_file(source, module_fqn="app.imports_only", rel_path="app/imports_only.py")
         # parse_file only extracts definitions, not imports
         assert len(nodes) == 0

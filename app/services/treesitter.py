@@ -30,6 +30,8 @@ def walk_definitions(node, parent_fqn: str, parent_kind: str, rel_path: str, nod
             file_path=rel_path,
             line_start=node.start_point[0],
             line_end=node.end_point[0],
+            start_byte=node.start_byte,
+            end_byte=node.end_byte,
         ))
         edges.append(Edge(source=parent_fqn, target=class_fqn, kind="CONTAINS"))
         for child in node.children:
@@ -48,6 +50,8 @@ def walk_definitions(node, parent_fqn: str, parent_kind: str, rel_path: str, nod
             file_path=rel_path,
             line_start=node.start_point[0],
             line_end=node.end_point[0],
+            start_byte=node.start_byte,
+            end_byte=node.end_byte,
         ))
         edges.append(Edge(source=parent_fqn, target=func_fqn, kind="CONTAINS"))
         for child in node.children:
@@ -187,6 +191,34 @@ def resolve_base_class(base_text:str, known_fqns: set[str]) -> str | None:
             return fqn
     return None
 
+def parse_file(source: bytes, module_fqn: str, rel_path: str) -> tuple[list[FQNNode], list[Edge]]:
+    """Parse a single .py file and extract FQN definition nodes and CONTAINS edges."""
+    parser = Parser(PY_LANGUAGE)
+    tree = parser.parse(source)
+
+    # fail fast
+    if _has_error(tree.root_node):
+        raise SyntaxError(f"Syntax error in {rel_path}")
+
+    nodes: list[FQNNode] = []
+    edges: list[Edge] = []
+    for child in tree.root_node.children:
+        walk_definitions(child, module_fqn, "module", rel_path, nodes, edges)
+
+    return nodes, edges
+
+def _has_error(node) -> bool:
+    """Recursively check if an AST subtree contains ERROR nodes"""
+    if node.type == "ERROR":
+        return True
+    if node.has_error:
+        for child in node.children:
+            if _has_error(child):
+                return True
+    return False
+
+
+
 def parse_repo(repo_path: Path) -> ADG:
     """
     Walk all .py files in repo_path and extract FQN nodes and edges.
@@ -213,14 +245,16 @@ def parse_repo(repo_path: Path) -> ADG:
             file_path=rel_path,
             line_start=0,
             line_end=line_count - 1,
+            start_byte=0,
+            end_byte=len(source)
         ))
 
     # Pass 2: extract class/function/method definitions + CONTAINS edges
     for fqn, source in file_sources.items():
-        tree = parser.parse(source)
         rel_path = next(n.file_path for n in nodes if n.fqn == fqn)
-        for child in tree.root_node.children:
-            walk_definitions(child, fqn, "module", rel_path, nodes, edges)
+        file_nodes, file_edges = parse_file(source, fqn, rel_path)
+        nodes.extend(file_nodes)
+        edges.extend(file_edges)
 
     known_fqns = {n.fqn for n in nodes}
 
