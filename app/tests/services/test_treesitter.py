@@ -377,3 +377,118 @@ class TestFlaskRepoIntegration:
         adg = parse_repo(flask_repo)
         fqns = [n.fqn for n in adg.nodes]
         assert len(fqns) == len(set(fqns))
+
+
+# ===========================================================================
+# 8. Byte offsets on FQNNode
+# ===========================================================================
+
+
+class TestByteOffsets:
+    """parse_repo populates start_byte and end_byte on FQNNode for content hashing."""
+
+    def test_class_byte_offsets(self, sample_repo: Path) -> None:
+        """Class nodes have start_byte and end_byte populated."""
+        adg = parse_repo(sample_repo)
+        user = _find_node(adg, "app.models.user.User")
+        assert user is not None
+        assert user.start_byte >= 0
+        assert user.end_byte > user.start_byte
+
+    def test_method_byte_offsets(self, sample_repo: Path) -> None:
+        """Method nodes have start_byte and end_byte populated."""
+        adg = parse_repo(sample_repo)
+        find = _find_node(adg, "app.models.user.User.find")
+        assert find is not None
+        assert find.start_byte >= 0
+        assert find.end_byte > find.start_byte
+
+    def test_method_byte_offsets_within_class(self, sample_repo: Path) -> None:
+        """Method byte offsets fall within the parent class byte offsets."""
+        adg = parse_repo(sample_repo)
+        user = _find_node(adg, "app.models.user.User")
+        find = _find_node(adg, "app.models.user.User.find")
+        assert user is not None
+        assert find is not None
+        assert find.start_byte >= user.start_byte
+        assert find.end_byte <= user.end_byte
+
+    def test_byte_offsets_slice_to_source(self, sample_repo: Path) -> None:
+        """Slicing file source[start_byte:end_byte] returns the exact node text."""
+        adg = parse_repo(sample_repo)
+        user = _find_node(adg, "app.models.user.User")
+        assert user is not None
+        # Read the actual source file
+        source = (sample_repo / user.file_path).read_bytes()
+        node_text = source[user.start_byte:user.end_byte]
+        assert b"class User" in node_text
+
+    def test_function_byte_offsets(self, sample_repo: Path) -> None:
+        """Top-level function nodes have start_byte and end_byte populated."""
+        adg = parse_repo(sample_repo)
+        get_user = _find_node(adg, "app.services.user_service.get_user")
+        assert get_user is not None
+        assert get_user.start_byte >= 0
+        assert get_user.end_byte > get_user.start_byte
+
+    def test_module_byte_offsets(self, sample_repo: Path) -> None:
+        """Module nodes have start_byte and end_byte populated."""
+        adg = parse_repo(sample_repo)
+        modules = _find_nodes(adg, "module")
+        assert len(modules) > 0
+        for m in modules:
+            assert m.start_byte >= 0
+            assert m.end_byte >= m.start_byte
+
+    def test_flask_class_byte_offsets(self, flask_repo: Path) -> None:
+        """Flask repo class nodes have valid byte offsets."""
+        adg = parse_repo(flask_repo)
+        auth = _find_node(adg, "app.middleware.auth.AuthMiddleware")
+        assert auth is not None
+        assert auth.start_byte >= 0
+        assert auth.end_byte > auth.start_byte
+
+
+# ===========================================================================
+# 9. Fail fast on syntax errors
+# ===========================================================================
+
+
+class TestSyntaxErrors:
+    """parse_repo fails fast when Tree-sitter reports ERROR nodes."""
+
+    def test_unclosed_parenthesis(self, tmp_path: Path) -> None:
+        """A file with an unclosed parenthesis causes parse_repo to raise."""
+        repo = tmp_path / "broken_repo"
+        repo.mkdir()
+        (repo / "app").mkdir()
+        (repo / "app" / "__init__.py").write_text("")
+        (repo / "app" / "broken.py").write_text("def foo(:\n    pass\n")
+        with pytest.raises(Exception):
+            parse_repo(repo)
+
+    def test_missing_colon(self, tmp_path: Path) -> None:
+        """A class definition missing a colon causes parse_repo to raise."""
+        repo = tmp_path / "broken_repo"
+        repo.mkdir()
+        (repo / "app").mkdir()
+        (repo / "app" / "__init__.py").write_text("")
+        (repo / "app" / "broken.py").write_text("class User\n    pass\n")
+        with pytest.raises(Exception):
+            parse_repo(repo)
+
+    def test_invalid_indentation(self, tmp_path: Path) -> None:
+        """Invalid indentation causes parse_repo to raise."""
+        repo = tmp_path / "broken_repo"
+        repo.mkdir()
+        (repo / "app").mkdir()
+        (repo / "app" / "__init__.py").write_text("")
+        (repo / "app" / "broken.py").write_text("def foo():\npass\n")
+        with pytest.raises(Exception):
+            parse_repo(repo)
+
+    def test_valid_repo_still_passes(self, sample_repo: Path) -> None:
+        """A repo with no syntax errors does not raise."""
+        # Sanity check: existing valid fixture still works
+        adg = parse_repo(sample_repo)
+        assert len(adg.nodes) > 0

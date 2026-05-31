@@ -87,3 +87,26 @@ def sample_repo(tmp_path: Path) -> Path:
 def flask_repo() -> Path:
     """Path to the flask sample repository in repos/."""
     return Path(__file__).resolve().parents[2] / "repos" / "flask"
+
+
+# ---------------------------------------------------------------------------
+# Diff Processor fixtures (in-memory, no git dependency)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sample_user_model_source() -> bytes:
+    """Python source with a class containing two methods."""
+    return b"class User:\n    def find(self):\n        pass\n\n    def all(self):\n        pass\n"
+
+
+@pytest.fixture
+def sample_user_model_trimmed_source() -> bytes:
+    """Same class with one method removed."""
+    return b"class User:\n    def find(self):\n        pass\n"
+
+
+@pytest.fixture
+def sample_user_service_source() -> bytes:
+    """Python source with a top-level function."""
+    return b"from app.models.user import User\n\ndef get_user(user_id):\n    return User.find(user_id)\n"
