@@ -29,10 +29,10 @@ def _get_repo(repo: str):
         console.print(f"[red]Error:[/] {e}")
         raise typer.Exit(code=1)
 
-def _resolve_repo_path(repo_changed_fqng) -> Path:
+def _resolve_repo_path(repo_cfg) -> Path:
     """Resolve the repo URL to a local filesystem path"""
     config_dir = Path(__file__).resolve().parents[2] / "repos"
-    path = Path(repo_changed_fqng.url)
+    path = Path(repo_cfg.url)
     if not path.is_absolute():
         path = config_dir / path
     return path.resolve()
@@ -43,8 +43,8 @@ def detect(
     commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
 ) -> None:
     """Run CPT violation detection on a repository."""
-    repo_changed_fqng = _get_repo(repo)
-    repo_path = _resolve_repo_path(repo_changed_fqng)
+    repo_cfg = _get_repo(repo)
+    repo_path = _resolve_repo_path(repo_cfg)
     
     if not repo_path.exists():
         console.print(f"[red]Error:[/] Repository path does not exist: {repo_path}")
@@ -65,9 +65,9 @@ def detect(
 
     # 3. Display result
     console.print()
-    console.print(f"[bold]Commit:[/] {result.commit_sha[:6]}...")
-    if result.commit_diff.parent_sha:
-        console.print(f"[bold]Parent:[/] {result.commit_diff.parent_sha[:6]}...")
+    console.print(f"[bold]Commit:[/] {commit_diff.commit_sha[:6]}...")
+    if commit_diff.parent_sha is not None:
+        console.print(f"[bold]Parent:[/] {commit_diff.parent_sha[:6]}...")
     
     if result.changed_files:
         file_table = Table(title="Changed Files", show_lines=True)
@@ -126,9 +126,9 @@ def seed_build(
     repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
 ) -> None:
     """Build an ADG seed snapshot from scratch."""
-    repo_changed_fqng = _get_repo(repo)
+    repo_cfg = _get_repo(repo)
     console.print(f"[bold]Building[/] seed for [cyan]{repo}[/]")
-    console.print(f"  Repo URL : {repo_changed_fqng.url}")
+    console.print(f"  Repo URL : {repo_cfg.url}")
     console.print("[dim]Not implemented yet.[/]")
 
 

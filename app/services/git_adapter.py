@@ -14,13 +14,13 @@ class GitAdapter:
         self, repo_path: Path, commit_sha: str | None = None
     ) -> CommitDiff:
         """Return a CommitDiff for the given commit (HEAD if None)."""
-        self.verify_repo(repo_path)
+        self._verify_repo(repo_path)
 
         if commit_sha is None:
             commit_sha = self._git(repo_path, "rev-parse", "HEAD")
         else:
             try:
-                commit_sha = self._git(repo_path, "rev-parse", "commit_sha")
+                commit_sha = self._git(repo_path, "rev-parse", commit_sha)
             except subprocess.CalledProcessError as e:
                 raise ValueError(f"Invalid commit SHA: {commit_sha}") from e
         
@@ -32,12 +32,14 @@ class GitAdapter:
             parent_sha = None
         
         # 3. get changed files with status
-        changed_files = self.get_changed_files(repo_path, commit_sha, parent_sha)
+        changed_files = self._get_changed_files(repo_path, commit_sha, parent_sha)
 
         # 4. read file content at both SHAs
-        file_contents = self.read_contents(repo_path, commit_sha, changed_files, "new")
-        if parent_sha:
-            parent_contents = self.read_contents(repo_path, parent_sha, changed_files, "old")
+        file_contents = self._read_contents(repo_path, commit_sha, changed_files, "new")
+        parent_contents: dict[str, bytes] = {}
+
+        if parent_sha is not None:
+            parent_contents = self._read_contents(repo_path, parent_sha, changed_files, "old")
 
         return CommitDiff(
             commit_sha=commit_sha,
@@ -59,12 +61,12 @@ class GitAdapter:
         return result.stdout.strip()
     
     @staticmethod
-    def verify_repo(repo_path: Path) -> None:
+    def _verify_repo(repo_path: Path) -> None:
         git_dir = repo_path / ".git"
         if not git_dir.exists():
             raise ValueError(f"Not a git repository: {repo_path}")
     
-    def get_changed_files(
+    def _get_changed_files(
             self, repo_path: Path, commit_sha: str, parent_sha: str | None
     ) -> list[FileChange]:
         if parent_sha is None:
@@ -107,7 +109,7 @@ class GitAdapter:
                 changes.append(FileChange(path=parts[1], status="deleted"))
         return changes
     
-    def read_contents(
+    def _read_contents(
             self,
             repo_path: Path,
             sha: str,
@@ -131,6 +133,7 @@ class GitAdapter:
                     capture_output=True,
                     check=True
                 )
+                contents[path] = result.stdout
             except subprocess.CalledProcessError:
                 pass
         return contents
