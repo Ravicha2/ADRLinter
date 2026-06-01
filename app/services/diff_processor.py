@@ -85,6 +85,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                     )
     return DiffResult(
         commit_sha=commit_diff.commit_sha,
+        parent_sha=commit_diff.parent_sha,
         changed_files=commit_diff.changed_files,
         changed_fqns=changed_fqns,
     )
