@@ -1,7 +1,8 @@
 """Diff Processor: identify changed FQNs from a git commit diff."""
 
-from services.models import ChangedFQN, CommitDiff, DiffResult
-from services.treesitter import file_path_to_module_fqn, parse_file
+from services.fqn import FQN
+from services.models import ChangedFQN, CommitDiff, DiffResult, FQNKind
+from services.treesitter import parse_file
 
 def process_diff(commit_diff: CommitDiff) -> DiffResult:
     """Process a CommitDiff and return changed FQNs and file changes"""
@@ -14,7 +15,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
             continue
 
         status = file_change.status
-        module_fqn = file_path_to_module_fqn(path)
+        module_fqn = FQN.from_path(path)
 
         if status == "added":
             source = commit_diff.file_contents.get(path, b"")
@@ -32,7 +33,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                     changed_fqns.append(
                         make_changed_fqn(node, "deleted", path, module_fqn)
                     )
-        
+
         elif status == "modified":
             old_source = commit_diff.parent_contents.get(path, b"")
             new_source = commit_diff.file_contents.get(path, b"")
@@ -63,10 +64,10 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                     changed_fqns.append(
                         make_changed_fqn(new_node, "modified", path, module_fqn)
                     )
-            
+
         elif status == "renamed":
             old_path = file_change.old_path or path
-            old_module = file_path_to_module_fqn(old_path)
+            old_module = FQN.from_path(old_path)
 
             old_source = commit_diff.parent_contents.get(old_path, b"")
             if old_source:
@@ -91,13 +92,13 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
     )
 
 def make_changed_fqn(
-        node, change_type:str, file_path: str, module_fqn:str
+        node, change_type:str, file_path: str, module_fqn: FQN
 ) -> ChangedFQN:
     """Derive enclosing scope from an FQNNode and create a ChangedFQN"""
     enclosing_class = None
-    if node.kind == "method":
-        enclosing_class = node.fqn.rsplit(".", 1)[0]
-    
+    if node.kind == FQNKind.METHOD:
+        enclosing_class = node.fqn.parent
+
     return ChangedFQN(
           fqn=node.fqn,
           change_type=change_type,

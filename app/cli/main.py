@@ -100,11 +100,11 @@ def detect(
                 "deleted": "red",
             }.get(changed_fqn.change_type, "white")
             fqn_table.add_row(
-                changed_fqn.fqn,
+                str(changed_fqn.fqn),
                 f"[{change_style}]{changed_fqn.change_type}[/{change_style}]",
                 changed_fqn.file_path,
-                changed_fqn.enclosing_class or "-",
-                changed_fqn.enclosing_module,
+                str(changed_fqn.enclosing_class) if changed_fqn.enclosing_class is not None else "-",
+                str(changed_fqn.enclosing_module) if changed_fqn.enclosing_module is not None else "-",
             )
         console.print(fqn_table)
     else:

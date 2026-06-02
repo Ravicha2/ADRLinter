@@ -14,7 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from services.models import ADG, Edge, FQNNode
+from services.fqn import FQN
+from services.models import ADG, Edge, FQNKind, FQNNode
 from services.treesitter import parse_repo
 
 
@@ -25,13 +26,14 @@ from services.treesitter import parse_repo
 
 def _find_node(adg: ADG, fqn: str) -> FQNNode | None:
     """find FQN node"""
+    target = FQN.from_dotted(fqn)
     for n in adg.nodes:
-        if n.fqn == fqn:
+        if n.fqn == target:
             return n
     return None
 
 
-def _find_nodes(adg: ADG, kind: str) -> list[FQNNode]:
+def _find_nodes(adg: ADG, kind: FQNKind) -> list[FQNNode]:
     """find FQN nodes"""
     return [n for n in adg.nodes if n.kind == kind]
 
@@ -50,63 +52,7 @@ def _find_edges(adg: ADG, kind: str) -> list[Edge]:
 
 
 # ===========================================================================
-# 1. Module FQN from file path
-# ===========================================================================
-
-
-class TestModuleFQN:
-    """Module FQNs are derived from file paths following the spec rules."""
-
-    def test_regular_module_fqn(self, sample_repo: Path) -> None:
-        """app/services/user_service.py -> module node with fqn 'app.services.user_service'."""
-        adg = parse_repo(sample_repo)
-        node = _find_node(adg, "app.services.user_service")
-        assert node is not None
-        assert node.kind == "module"
-        assert node.file_path == "app/services/user_service.py"
-
-    def test_init_py_produces_parent_package_fqn(self, sample_repo: Path) -> None:
-        """app/models/__init__.py -> module node with fqn 'app.models'."""
-        adg = parse_repo(sample_repo)
-        node = _find_node(adg, "app.models")
-        assert node is not None
-        assert node.kind == "module"
-        assert node.file_path == "app/models/__init__.py"
-
-    def test_top_level_init_fqn(self, sample_repo: Path) -> None:
-        """app/__init__.py -> module node with fqn 'app'."""
-        adg = parse_repo(sample_repo)
-        node = _find_node(adg, "app")
-        assert node is not None
-        assert node.kind == "module"
-        assert node.file_path == "app/__init__.py"
-
-    def test_config_module_fqn(self, sample_repo: Path) -> None:
-        """app/config.py -> module node with fqn 'app.config'."""
-        adg = parse_repo(sample_repo)
-        node = _find_node(adg, "app.config")
-        assert node is not None
-        assert node.kind == "module"
-        assert node.file_path == "app/config.py"
-
-    def test_module_node_has_line_range(self, sample_repo: Path) -> None:
-        """Every module node has valid line_start and line_end."""
-        adg = parse_repo(sample_repo)
-        modules = _find_nodes(adg, "module")
-        assert len(modules) > 0
-        for m in modules:
-            assert m.line_start >= 0
-            assert m.line_end >= m.line_start
-
-    def test_no_duplicate_module_nodes(self, sample_repo: Path) -> None:
-        """Each file produces exactly one module node."""
-        adg = parse_repo(sample_repo)
-        module_fqns = [n.fqn for n in _find_nodes(adg, "module")]
-        assert len(module_fqns) == len(set(module_fqns))
-
-
-# ===========================================================================
-# 2. Class, function, and method extraction
+# 1. Class, function, and method extraction
 # ===========================================================================
 
 
@@ -114,30 +60,30 @@ class TestClassFunctionMethodExtraction:
     """Class definitions, top-level functions, and methods appear as FQNNodes."""
 
     def test_class_node(self, sample_repo: Path) -> None:
-        """class User in app/models/user.py -> node 'app.models.user.User' kind='class'."""
+        """class User in app/models/user.py -> node 'app.models.user.User' kind=CLASS."""
         adg = parse_repo(sample_repo)
         node = _find_node(adg, "app.models.user.User")
         assert node is not None
-        assert node.kind == "class"
+        assert node.kind == FQNKind.CLASS
         assert node.file_path == "app/models/user.py"
 
     def test_base_class_node(self, sample_repo: Path) -> None:
-        """class BaseModel in app/models/base.py -> node 'app.models.base.BaseModel' kind='class'."""
+        """class BaseModel in app/models/base.py -> node 'app.models.base.BaseModel' kind=CLASS."""
         adg = parse_repo(sample_repo)
         node = _find_node(adg, "app.models.base.BaseModel")
         assert node is not None
-        assert node.kind == "class"
+        assert node.kind == FQNKind.CLASS
 
     def test_method_nodes(self, sample_repo: Path) -> None:
-        """Methods inside a class are extracted with kind='method'."""
+        """Methods inside a class are extracted with kind=METHOD."""
         adg = parse_repo(sample_repo)
         find_node = _find_node(adg, "app.models.user.User.find")
         assert find_node is not None
-        assert find_node.kind == "method"
+        assert find_node.kind == FQNKind.METHOD
 
         all_node = _find_node(adg, "app.models.user.User.all")
         assert all_node is not None
-        assert all_node.kind == "method"
+        assert all_node.kind == FQNKind.METHOD
 
     def test_base_class_methods(self, sample_repo: Path) -> None:
         """BaseModel has save and delete methods."""
@@ -146,18 +92,17 @@ class TestClassFunctionMethodExtraction:
         assert _find_node(adg, "app.models.base.BaseModel.delete") is not None
 
     def test_top_level_function(self, sample_repo: Path) -> None:
-        """Top-level function get_user -> kind='function' (not 'method')."""
+        """Top-level function get_user -> kind=FUNCTION (not METHOD)."""
         adg = parse_repo(sample_repo)
         node = _find_node(adg, "app.services.user_service.get_user")
         assert node is not None
-        assert node.kind == "function"
+        assert node.kind == FQNKind.FUNCTION
 
     def test_class_line_range(self, sample_repo: Path) -> None:
         """Class node line_start/line_end span the entire class definition."""
         adg = parse_repo(sample_repo)
         user_class = _find_node(adg, "app.models.user.User")
         assert user_class is not None
-        # User class starts at line 2 (after import) and ends at the last method
         assert user_class.line_start >= 0
         assert user_class.line_end > user_class.line_start
 
@@ -176,6 +121,62 @@ class TestClassFunctionMethodExtraction:
         adg = parse_repo(sample_repo)
         fqns = [n.fqn for n in adg.nodes]
         assert len(fqns) == len(set(fqns))
+
+
+# ===========================================================================
+# 2. Module node properties
+# ===========================================================================
+
+
+class TestModuleNodes:
+    """Module nodes have correct FQNs derived from file paths."""
+
+    def test_regular_module_fqn(self, sample_repo: Path) -> None:
+        """app/services/user_service.py -> module node with fqn 'app.services.user_service'."""
+        adg = parse_repo(sample_repo)
+        node = _find_node(adg, "app.services.user_service")
+        assert node is not None
+        assert node.kind == FQNKind.MODULE
+        assert node.file_path == "app/services/user_service.py"
+
+    def test_init_py_produces_parent_package_fqn(self, sample_repo: Path) -> None:
+        """app/models/__init__.py -> module node with fqn 'app.models'."""
+        adg = parse_repo(sample_repo)
+        node = _find_node(adg, "app.models")
+        assert node is not None
+        assert node.kind == FQNKind.MODULE
+        assert node.file_path == "app/models/__init__.py"
+
+    def test_top_level_init_fqn(self, sample_repo: Path) -> None:
+        """app/__init__.py -> module node with fqn 'app'."""
+        adg = parse_repo(sample_repo)
+        node = _find_node(adg, "app")
+        assert node is not None
+        assert node.kind == FQNKind.MODULE
+        assert node.file_path == "app/__init__.py"
+
+    def test_config_module_fqn(self, sample_repo: Path) -> None:
+        """app/config.py -> module node with fqn 'app.config'."""
+        adg = parse_repo(sample_repo)
+        node = _find_node(adg, "app.config")
+        assert node is not None
+        assert node.kind == FQNKind.MODULE
+        assert node.file_path == "app/config.py"
+
+    def test_module_node_has_line_range(self, sample_repo: Path) -> None:
+        """Every module node has valid line_start and line_end."""
+        adg = parse_repo(sample_repo)
+        modules = _find_nodes(adg, FQNKind.MODULE)
+        assert len(modules) > 0
+        for m in modules:
+            assert m.line_start >= 0
+            assert m.line_end >= m.line_start
+
+    def test_no_duplicate_module_nodes(self, sample_repo: Path) -> None:
+        """Each file produces exactly one module node."""
+        adg = parse_repo(sample_repo)
+        module_fqns = [n.fqn for n in _find_nodes(adg, FQNKind.MODULE)]
+        assert len(module_fqns) == len(set(module_fqns))
 
 
 # ===========================================================================
@@ -229,7 +230,6 @@ class TestImportsEdges:
     def test_from_import_resolves_to_fqn(self, sample_repo: Path) -> None:
         """'from app.models.user import User' -> IMPORTS edge to app.models.user.User."""
         adg = parse_repo(sample_repo)
-        # The import is in app/services/user_service.py, so the source is that module
         assert _find_edge(adg, "app.services.user_service", "app.models.user.User", "IMPORTS") is not None
 
     def test_from_import_in_init(self, sample_repo: Path) -> None:
@@ -250,15 +250,8 @@ class TestImportsEdges:
     def test_unresolvable_imports_skipped(self, sample_repo: Path) -> None:
         """Imports of stdlib/third-party modules are not included as edges."""
         adg = parse_repo(sample_repo)
-        # No edge should target an FQN that doesn't exist in the repo
         import_targets = {e.target for e in _find_edges(adg, "IMPORTS")}
-        all_fqns = {n.fqn for n in adg.nodes}
-        # Import targets should be a subset of (or exactly match) nodes in the repo
-        # The spec says unresolvable imports are skipped, so any IMPORTS target
-        # must correspond to an FQN that exists in the repo
         for target in import_targets:
-            # The target could be a module FQN or a class/function FQN
-            # Just verify no stdlib targets like "os", "sys" appear
             assert not target.startswith(("os.", "sys.", "json.", "collections.")), (
                 f"stdlib import target should be skipped: {target}"
             )
@@ -283,7 +276,7 @@ class TestCallsEdges:
     def test_no_calls_to_unknown_targets(self, sample_repo: Path) -> None:
         """CALLS edges only target FQNs that exist in the repo."""
         adg = parse_repo(sample_repo)
-        all_fqns = {n.fqn for n in adg.nodes}
+        all_fqns = {str(n.fqn) for n in adg.nodes}
         calls_edges = _find_edges(adg, "CALLS")
         for edge in calls_edges:
             assert edge.target in all_fqns, (
@@ -307,7 +300,7 @@ class TestInheritsEdges:
     def test_no_inherits_from_external(self, sample_repo: Path) -> None:
         """INHERITS edges only target FQNs within the repo (no external base classes)."""
         adg = parse_repo(sample_repo)
-        all_fqns = {n.fqn for n in adg.nodes}
+        all_fqns = {str(n.fqn) for n in adg.nodes}
         inherits_edges = _find_edges(adg, "INHERITS")
         for edge in inherits_edges:
             assert edge.target in all_fqns, (
@@ -333,7 +326,6 @@ class TestFlaskRepoIntegration:
     def test_flask_module_nodes(self, flask_repo: Path) -> None:
         """Key module FQNs from the flask repo are present."""
         adg = parse_repo(flask_repo)
-        # config.py is at root level, so FQN is "config" not "app.config"
         assert _find_node(adg, "app") is not None
         assert _find_node(adg, "config") is not None
         assert _find_node(adg, "app.routes") is not None
@@ -358,17 +350,12 @@ class TestFlaskRepoIntegration:
     def test_flask_contains_edges(self, flask_repo: Path) -> None:
         """CONTAINS edges connect modules to their children."""
         adg = parse_repo(flask_repo)
-        # app CONTAINS create_app
         assert _find_edge(adg, "app", "app.create_app", "CONTAINS") is not None
-        # AuthMiddleware CONTAINS _check_token
         assert _find_edge(adg, "app.middleware.auth.AuthMiddleware", "app.middleware.auth.AuthMiddleware._check_token", "CONTAINS") is not None
 
     def test_flask_imports_edges(self, flask_repo: Path) -> None:
         """IMPORTS edges from the flask repo's import statements."""
         adg = parse_repo(flask_repo)
-        # app/__init__.py imports from app.routes and app.middleware.auth
-        # The specific FQN depends on import resolution, but at minimum
-        # there should be some IMPORTS edges
         imports = _find_edges(adg, "IMPORTS")
         assert len(imports) > 0
 
@@ -418,7 +405,6 @@ class TestByteOffsets:
         adg = parse_repo(sample_repo)
         user = _find_node(adg, "app.models.user.User")
         assert user is not None
-        # Read the actual source file
         source = (sample_repo / user.file_path).read_bytes()
         node_text = source[user.start_byte:user.end_byte]
         assert b"class User" in node_text
@@ -434,7 +420,7 @@ class TestByteOffsets:
     def test_module_byte_offsets(self, sample_repo: Path) -> None:
         """Module nodes have start_byte and end_byte populated."""
         adg = parse_repo(sample_repo)
-        modules = _find_nodes(adg, "module")
+        modules = _find_nodes(adg, FQNKind.MODULE)
         assert len(modules) > 0
         for m in modules:
             assert m.start_byte >= 0
@@ -489,6 +475,5 @@ class TestSyntaxErrors:
 
     def test_valid_repo_still_passes(self, sample_repo: Path) -> None:
         """A repo with no syntax errors does not raise."""
-        # Sanity check: existing valid fixture still works
         adg = parse_repo(sample_repo)
         assert len(adg.nodes) > 0
