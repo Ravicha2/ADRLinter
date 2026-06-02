@@ -69,8 +69,8 @@ class ChangedFQN:
     fqn: FQN
     change_type: str  # "added" | "modified" | "deleted"
     file_path: str
+    enclosing_module: FQN
     enclosing_class: FQN | None = None
-    enclosing_module: FQN | None = None
 
 
 @dataclass

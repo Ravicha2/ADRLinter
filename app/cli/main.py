@@ -104,7 +104,7 @@ def detect(
                 f"[{change_style}]{changed_fqn.change_type}[/{change_style}]",
                 changed_fqn.file_path,
                 str(changed_fqn.enclosing_class) if changed_fqn.enclosing_class is not None else "-",
-                str(changed_fqn.enclosing_module) if changed_fqn.enclosing_module is not None else "-",
+                str(changed_fqn.enclosing_module),
             )
         console.print(fqn_table)
     else:
