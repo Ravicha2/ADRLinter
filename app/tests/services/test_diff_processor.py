@@ -11,7 +11,8 @@ from __future__ import annotations
 
 import pytest
 
-from services.models import ChangedFQN, CommitDiff, DiffResult, FileChange
+from services.fqn import FQN
+from services.models import ChangedFQN, CommitDiff, DiffResult, FileChange, FQNKind
 from services.diff_processor import process_diff
 
 
@@ -40,8 +41,9 @@ README_MD = b"# My Project\n\nThis is a readme.\n"
 
 def _find_changed(result: DiffResult, fqn: str) -> ChangedFQN | None:
     """Find a ChangedFQN by its FQN string."""
+    target = FQN.from_dotted(fqn)
     for c in result.changed_fqns:
-        if c.fqn == fqn:
+        if c.fqn == target:
             return c
     return None
 
@@ -79,7 +81,6 @@ class TestAddedFile:
         result = process_diff(commit_diff)
         added = _find_changed_by_type(result, "added")
         assert len(added) > 0
-        # get_user function should be reported as added
         assert _find_changed(result, "app.services.user_service.get_user") is not None
         assert _find_changed(result, "app.services.user_service.get_user").change_type == "added"
 
@@ -189,7 +190,6 @@ class TestModifiedFileNewFunction:
             parent_contents={"app/services/user_service.py": USER_SERVICE_OLD},
         )
         result = process_diff(commit_diff)
-        # get_user exists in both old and new; if content hash matches, it is not in output
         get_user = _find_changed(result, "app.services.user_service.get_user")
         assert get_user is None
 
@@ -212,7 +212,6 @@ class TestModifiedFileFunctionRemoved:
             parent_contents={"app/models/user.py": USER_MODEL_OLD},
         )
         result = process_diff(commit_diff)
-        # User.all was removed (present in old, absent in new)
         assert _find_changed(result, "app.models.user.User.all").change_type == "deleted"
 
 
@@ -264,8 +263,6 @@ class TestModifiedFileBodyChanged:
             parent_contents={"app/greet.py": source_old},
         )
         result = process_diff(commit_diff)
-        # Content hash differs due to extra space, so it IS reported as modified
-        # This is the accepted Phase 1 behavior
         greet = _find_changed(result, "app.greet.greet")
         assert greet is not None
         assert greet.change_type == "modified"
@@ -291,8 +288,8 @@ class TestEnclosingScope:
         result = process_diff(commit_diff)
         find_method = _find_changed(result, "app.models.user.User.find")
         assert find_method is not None
-        assert find_method.enclosing_class == "app.models.user.User"
-        assert find_method.enclosing_module == "app.models.user"
+        assert find_method.enclosing_class == FQN.from_dotted("app.models.user.User")
+        assert find_method.enclosing_module == FQN.from_dotted("app.models.user")
 
     def test_class_has_no_enclosing_class(self) -> None:
         """A top-level class has no enclosing_class (None)."""
@@ -307,7 +304,7 @@ class TestEnclosingScope:
         user_class = _find_changed(result, "app.models.user.User")
         assert user_class is not None
         assert user_class.enclosing_class is None
-        assert user_class.enclosing_module == "app.models.user"
+        assert user_class.enclosing_module == FQN.from_dotted("app.models.user")
 
     def test_top_level_function_has_no_enclosing_class(self) -> None:
         """A top-level function has no enclosing_class."""
@@ -322,7 +319,7 @@ class TestEnclosingScope:
         func = _find_changed(result, "app.services.user_service.get_user")
         assert func is not None
         assert func.enclosing_class is None
-        assert func.enclosing_module == "app.services.user_service"
+        assert func.enclosing_module == FQN.from_dotted("app.services.user_service")
 
 
 # ===========================================================================
@@ -432,8 +429,7 @@ class TestRenamedFile:
             parent_contents={"app/services/user_service.py": USER_SERVICE_OLD},
         )
         result = process_diff(commit_diff)
-        # Old FQNs should be deleted
-        deleted_old = [c for c in result.changed_fqns if c.change_type == "deleted" and "user_service" in c.fqn]
+        deleted_old = [c for c in result.changed_fqns if c.change_type == "deleted" and "user_service" in str(c.fqn)]
         assert len(deleted_old) > 0
 
     def test_renamed_file_new_fqns_added(self) -> None:
@@ -448,8 +444,7 @@ class TestRenamedFile:
             parent_contents={"app/services/user_service.py": USER_SERVICE_OLD},
         )
         result = process_diff(commit_diff)
-        # New FQNs should be added
-        added_new = [c for c in result.changed_fqns if c.change_type == "added" and "auth_service" in c.fqn]
+        added_new = [c for c in result.changed_fqns if c.change_type == "added" and "auth_service" in str(c.fqn)]
         assert len(added_new) > 0
 
     def test_renamed_file_both_in_output(self) -> None:

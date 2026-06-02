@@ -10,8 +10,8 @@ def run(label: str, diff: CommitDiff) -> None:
     print(f"  commit: {result.commit_sha}")
     print(f"  changed_files: {[f.path for f in result.changed_files]}")
     for c in result.changed_fqns:
-        enc = c.enclosing_class or "-"
-        print(f"    {c.change_type:10s} {c.fqn:45s} class={enc:30s} module={c.enclosing_module}")
+        enc = str(c.enclosing_class) if c.enclosing_class is not None else "-"
+        print(f"    {c.change_type:10s} {str(c.fqn):45s} class={enc:30s} module={c.enclosing_module}")
     if not result.changed_fqns:
         print("    (no changed FQNs)")
     print()

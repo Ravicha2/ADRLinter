@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
+
+from services.fqn import FQN
+
+
+class FQNKind(Enum):
+    MODULE = "module"
+    CLASS = "class"
+    FUNCTION = "function"
+    METHOD = "method"
 
 
 @dataclass
 class FQNNode:
-    fqn: str
-    kind: str  # "module" | "class" | "function" | "method"
+    fqn: FQN
+    kind: FQNKind
     file_path: str
     line_start: int
     line_end: int
@@ -56,11 +66,11 @@ class CommitDiff:
 
 @dataclass
 class ChangedFQN:
-    fqn: str
+    fqn: FQN
     change_type: str  # "added" | "modified" | "deleted"
     file_path: str
-    enclosing_class: str | None = None  # class FQN if entity is inside a class
-    enclosing_module: str = ""  # always present
+    enclosing_module: FQN
+    enclosing_class: FQN | None = None
 
 
 @dataclass

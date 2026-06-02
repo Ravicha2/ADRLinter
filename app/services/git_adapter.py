@@ -27,7 +27,7 @@ class GitAdapter:
         # 2. Find parent SHA (None for initial commit)
         parent_sha: str | None
         try: 
-            parent_sha = self._git(repo_path, "rev-parse", f"{commit_sha}^")
+            parent_sha = self._git(repo_path, "rev-parse", f"{commit_sha}^") # resolve input into commit hash, ^ = parent of
         except subprocess.CalledProcessError:
             parent_sha = None
         
