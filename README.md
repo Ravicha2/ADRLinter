@@ -17,11 +17,7 @@ Part of a research project at UNSW (University of New South Wales).
 # Copy env file and adjust if needed
 cp .env.example .env
 
-# Start services (fast restart)
-./dev.sh
-
-# Start with rebuild
-./dev.sh --build
+docker compose up -d
 ```
 
 FastAPI: http://localhost:8000/docs

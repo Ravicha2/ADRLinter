@@ -84,6 +84,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                     changed_fqns.append(
                         make_changed_fqn(node, "added", path, module_fqn)
                     )
+         
     return DiffResult(
         commit_sha=commit_diff.commit_sha,
         parent_sha=commit_diff.parent_sha,

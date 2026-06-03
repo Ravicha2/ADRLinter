@@ -19,7 +19,7 @@ neo4j_data/
 
 # agent doc
 .claude
-
+CLAUDE.md
 # seeded repos
 repos.DS_Store
 repos/

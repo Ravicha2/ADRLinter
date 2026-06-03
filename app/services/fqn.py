@@ -21,8 +21,8 @@ class FQN:
     def from_path(cls, rel_path: str) -> FQN:
         """Convert a relative file path to a module FQN.
 
-        Strips ``.py``, normalises path separators to dots, and removes
-        ``__init__`` suffixes.
+        Strips .py, normalises path separators to dots, and removes
+        __init__ suffixes.
         """
         module = rel_path.removesuffix(".py").replace("/", ".").replace("\\", ".")
         if module.endswith(".__init__"):
