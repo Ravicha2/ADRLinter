@@ -34,3 +34,8 @@ package = true
 dev = [
     "python-dotenv>=1.2.2",
 ]
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: marks tests as integration tests",
+]

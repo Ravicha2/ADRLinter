@@ -17,25 +17,26 @@ Judge evaluation:
 from __future__ import annotations
 
 import os
-
+import json
+import requests
 import pytest
+from services.langextract import ADRExtractor, LangExtractConfig
+from services.models import PredicateType
 
-# Skip entire module if no API key is available
-pytestmark = pytest.mark.integration
 
-# ---------------------------------------------------------------------------
-# Skip if API key not available
-# ---------------------------------------------------------------------------
+HAS_API_KEY = bool(os.environ.get("OPENROUTER_API_KEY"))
+API_KEY = os.getenv("OPENROUTER_API_KEY")
 
-API_KEY_ENV = os.environ.get("LANGEXTRACT_API_KEY_ENV", "OPENROUTER_API_KEY")
-HAS_API_KEY = bool(os.environ.get(API_KEY_ENV))
-
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(not HAS_API_KEY, reason="OPENROUTER_API_KEY is missing from environment")
+]
 
 @pytest.fixture
 def extractor():
     """Create an ADRExtractor with real LLM backend."""
     if not HAS_API_KEY:
-        pytest.skip(f"{API_KEY_ENV} not set")
+        pytest.skip(f"{API_KEY} not set")
     from services.langextract import ADRExtractor, LangExtractConfig
 
     config = LangExtractConfig()
@@ -198,13 +199,7 @@ class TestExtractNoConstraints:
 
 
 class TestJudgeEvaluation:
-    """LLM-as-judge evaluation of extraction quality.
-
-    These tests extract constraints, then use a judge model to evaluate
-    whether the extractions are correct. They assert a minimum quality threshold.
-    """
-
-    MINIMUM_SCORE = 0.7  # 70% minimum precision/recall threshold
+    MINIMUM_SCORE = 0.7
 
     @pytest.fixture
     def adr001_extraction(self, extractor):
@@ -214,41 +209,106 @@ class TestJudgeEvaluation:
             adr_path="docs/adr/ADR-001-mysql-storage.md",
         )
 
-    def test_judge_scores_above_threshold(self, adr001_extraction) -> None:
-        """Judge evaluates extraction quality above minimum threshold.
+    @pytest.fixture
+    def judge_extractor(self):
+        """Separate extractor instance used only for judge calls."""
+        config = LangExtractConfig()
+        return ADRExtractor(config=config)
 
-        This test:
-        1. Extracts constraints from ADR-001 using the configured LLM
-        2. Sends the extraction + original ADR text to a judge LLM
-        3. Asserts the judge's precision/recall score meets the minimum threshold
-        """
-        # If extraction produced errors, skip judge evaluation
+    def _serialize_constraints(self, constraints: list) -> str:
+        return json.dumps(
+            [
+                {
+                    "subject": c.subject,
+                    "predicate": c.predicate.value,
+                    "object": c.object,
+                    "justification": c.justification,
+                    "char_interval": list(c.char_interval),
+                }
+                for c in constraints
+            ],
+            indent=2,
+        )
+
+    def _call_judge(self, judge_extractor, adr_text: str, constraints_json: str) -> dict:
+        """Ask the LLM to score an extraction. Returns parsed JSON scores."""
+        judge_prompt = (
+            f"{JUDGE_PROMPT}\n\n"
+            f"## Original ADR\n\n{adr_text}\n\n"
+            f"## Extracted Constraints\n\n```json\n{constraints_json}\n```\n\n"
+            "Respond with JSON only. No preamble, no markdown fences."
+        )
+
+        model_name = os.getenv("JUDGE_MODEL")
+
+        if not API_KEY:
+            raise ValueError("OPENROUTER_API_KEY is missing from environment.")
+
+        headers = {
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        }
+
+        payload = {
+            "model": model_name,
+            "messages": [
+                {
+                    "role": "user", 
+                    "content": judge_prompt
+                }
+            ]
+        }
+
+        response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+            headers=headers,
+            json=payload
+        )
+        response.raise_for_status()
+        response_data = response.json()
+
+        raw = response_data["choices"][0]["message"]["content"]
+        clean = raw.strip()
+        # Strip markdown code fences if present
+        if clean.startswith("```"):
+            first_newline = clean.index("\n") if "\n" in clean else len(clean)
+            clean = clean[first_newline + 1:]
+        if clean.endswith("```"):
+            clean = clean[: -3]
+        clean = clean.strip()
+        return json.loads(clean)
+
+    def test_judge_scores_above_threshold(self, adr001_extraction, judge_extractor) -> None:
         if adr001_extraction.errors:
-            # API failures mean we can't evaluate quality
             api_errors = [e for e in adr001_extraction.errors if e.error_type == "api_failure"]
             if api_errors:
                 pytest.skip(f"API errors: {[e.message for e in api_errors]}")
 
-        # Ground truth for ADR-001:
-        # 1. app.services.* prohibits_dependency app.db.mysql
-        # 2. app.* prohibits_dependency app.legacy.mysql (or similar)
-        # 3. app.database.query requires_implementation (implicit)
-        #
-        # The judge evaluates whether extracted constraints match the ADR's intent.
-        # For now, we check that at least one constraint was extracted
-        # and it has the correct predicate direction.
-        #
-        # Full judge evaluation (calling a second LLM) is implemented in
-        # scripts/validate_extraction.py for manual runs.
         assert len(adr001_extraction.constraints) >= 1
 
-        # Verify each extracted constraint has grounded source text
         for c in adr001_extraction.constraints:
-            assert c.char_interval[0] >= 0, f"Invalid char_interval start: {c.char_interval}"
-            assert c.char_interval[1] > c.char_interval[0], (
-                f"char_interval end must be > start: {c.char_interval}"
-            )
-            assert c.justification, f"Missing justification for {c.subject} {c.predicate.value} {c.object}"
+            assert c.char_interval[0] >= 0
+            assert c.char_interval[1] > c.char_interval[0]
+            assert c.justification
+
+        constraints_json = self._serialize_constraints(adr001_extraction.constraints)
+
+        try:
+            scores = self._call_judge(judge_extractor, ADR_FORBIDDEN_DEP, constraints_json)
+        except Exception as e:
+            pytest.skip(f"Judge call failed: {e}")
+
+        precision = scores.get("precision", 0.0)
+        recall = scores.get("recall", 0.0)
+
+        assert precision >= self.MINIMUM_SCORE, (
+            f"Judge precision {precision:.2f} below {self.MINIMUM_SCORE}.\n"
+            f"Full scores:\n{json.dumps(scores, indent=2)}"
+        )
+        assert recall >= self.MINIMUM_SCORE, (
+            f"Judge recall {recall:.2f} below {self.MINIMUM_SCORE}.\n"
+            f"Full scores:\n{json.dumps(scores, indent=2)}"
+        )
 
 
 class TestDeterminism:
