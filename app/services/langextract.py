@@ -26,25 +26,27 @@ from services.models import (
 class LangExtractConfig:
     model_id: str | None = None
     model_url: str | None = None
-    api_key_env: str = "OLLAMA_API_KEY"
+    api_key_env: str = "OPENROUTER_API_KEY"
+    provider: str = "openai"
     judge_model_id: str | None = None
     temperature: float = 0.0
 
     def __post_init__(self) -> None:
         if self.model_id is None:
-            self.model_id = os.getenv("LANDEXTRACT_MODEL_ID", "")
+            self.model_id = os.getenv("LANGEXTRACT_MODEL_ID", "google/gemini-3.1-flash-lite-preview")
         if self.model_url is None:
-            self.model_url = os.getenv("LANDEXTRACT_MODEL_URL", "http://localhost:11434")
+            self.model_url = os.getenv("LANGEXTRACT_MODEL_URL", "https://openrouter.ai/api/v1")
         if self.judge_model_id is None:
-            self.judge_model_id = os.getenv("LANDEXTRACT_JUDGE_MODEL_ID", "")
+            self.judge_model_id = os.getenv("LANGEXTRACT_JUDGE_MODEL_ID", "google/gemma-4-26b-a4b-it:free")
 
     @classmethod
     def from_dict(cls, raw: dict) -> LangExtractConfig:
         return cls(
-            model_id=raw.get("model_id", os.getenv("LANDEXTRACT_MODEL_ID", "")),
-            model_url=raw.get("model_url", os.getenv("LANDEXTRACT_MODEL_URL", "http://localhost:11434")),
-            api_key_env=raw.get("api_key_env", "OLLAMA_API_KEY"),
-            judge_model_id=raw.get("judge_model_id", os.getenv("LANDEXTRACT_JUDGE_MODEL_ID", "")),
+            model_id=raw.get("model_id", os.getenv("LANGEXTRACT_MODEL_ID", "google/gemini-3.1-flash-lite-preview")),
+            model_url=raw.get("model_url", os.getenv("LANGEXTRACT_MODEL_URL", "https://openrouter.ai/api/v1")),
+            api_key_env=raw.get("api_key_env", "OPENROUTER_API_KEY"),
+            provider=raw.get("provider", "openai"),
+            judge_model_id=raw.get("judge_model_id", os.getenv("LANGEXTRACT_JUDGE_MODEL_ID", "google/gemma-4-26b-a4b-it:free")),
             temperature=raw.get("temperature", 0.0),
         )
 
@@ -100,11 +102,11 @@ FEW_SHOT_EXAMPLES = [
         extractions=[
             lx.data.Extraction(
                 extraction_class="adr_constraint",
-                extraction_text="users.views.* prohibits_dependency users.models.*",
+                extraction_text="users.views prohibits_dependency users.models",
                 attributes={
-                    "subject": "users.views.*",
+                    "subject": "users.views",
                     "predicate": "prohibits_dependency",
-                    "object": "users.models.*",
+                    "object": "users.models",
                     "justification": "Views are forbidden from importing models directly.",
                 },
             )
@@ -142,14 +144,20 @@ class ADRExtractor:
         self, adr_text: str, adr_id: str, adr_path: str
     ) -> ExtractionResult:
         try:
+            model_config = lx.factory.ModelConfig(
+                model_id=self.config.model_id,
+                provider=self.config.provider,
+                provider_kwargs={
+                    "api_key": self.config.api_key,
+                    "base_url": self.config.model_url,
+                    "temperature": self.config.temperature,
+                },
+            )
             result = lx.extract(
                 text_or_documents=adr_text,
                 prompt_description=PROMPT_DESCRIPTION,
                 examples=FEW_SHOT_EXAMPLES,
-                model_id=self.config.model_id,
-                api_key=self.config.api_key,
-                model_url=self.config.model_url,
-                temperature=self.config.temperature,
+                config=model_config,
             )
         except Exception as exc:
             return ExtractionResult(

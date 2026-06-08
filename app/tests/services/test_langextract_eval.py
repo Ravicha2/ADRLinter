@@ -4,7 +4,7 @@ These tests call real LLM APIs and are marked @pytest.mark.integration.
 Run with: pytest -m integration
 Skip with: pytest -m "not integration"
 
-Requires environment variable for API key (OLLAMA_API_KEY by default).
+Requires environment variable for API key (OPENROUTER_API_KEY by default).
 Tests auto-skip if the key is not set.
 
 Judge evaluation:
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.integration
 # Skip if API key not available
 # ---------------------------------------------------------------------------
 
-API_KEY_ENV = os.environ.get("LANDEXTRACT_API_KEY_ENV", "OLLAMA_API_KEY")
+API_KEY_ENV = os.environ.get("LANGEXTRACT_API_KEY_ENV", "OPENROUTER_API_KEY")
 HAS_API_KEY = bool(os.environ.get(API_KEY_ENV))
 
 

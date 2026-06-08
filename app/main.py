@@ -51,13 +51,19 @@ def neo4j_health():
 
 @app.get("/llm-health")
 def llm_health():
-    import ollama
+    import httpx
 
     config = _get_langextract_config()
+    api_key = config.api_key
     try:
-        client = ollama.Client(host=config.model_url)
-        models = client.list()
-        model_names = [m.model for m in models.models]
-        return {"llm": "reachable", "model_id": config.model_id, "available_models": model_names}
+        resp = httpx.get(
+            f"{config.model_url}/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        model_ids = [m.get("id") for m in data.get("data", [])]
+        return {"llm": "reachable", "model_id": config.model_id, "available_models": model_ids}
     except Exception as e:
         return {"llm": "unreachable", "error": str(e), "model_id": config.model_id}

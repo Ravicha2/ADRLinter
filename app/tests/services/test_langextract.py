@@ -13,6 +13,7 @@ Integration tests with real LLM calls are in test_langextract_eval.py.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -121,48 +122,85 @@ class TestLangExtractConfig:
         config = LangExtractConfig()
         assert config.model_id is not None
         assert config.model_url is not None
-        assert config.api_key_env == "OLLAMA_API_KEY"
+        assert config.api_key_env == "OPENROUTER_API_KEY"
         assert config.temperature == 0.0
+        assert config.provider == "openai"
 
     def test_custom_values(self) -> None:
         from services.langextract import LangExtractConfig
 
         config = LangExtractConfig(
-            model_id="gemma4:31b-cloud",
-            model_url="http://localhost:11434",
-            api_key_env="OLLAMA_API_KEY",
-            judge_model_id="qwen3.5:cloud",
+            model_id="google/gemini-3.1-flash-lite-preview",
+            model_url="https://openrouter.ai/api/v1",
+            api_key_env="OPENROUTER_API_KEY",
+            judge_model_id="google/gemma-4-26b-a4b-it:free",
+            provider="openai",
         )
-        assert config.model_id == "gemma4:31b-cloud"
-        assert config.model_url == "http://localhost:11434"
-        assert config.api_key_env == "OLLAMA_API_KEY"
-        assert config.judge_model_id == "qwen3.5:cloud"
+        assert config.model_id == "google/gemini-3.1-flash-lite-preview"
+        assert config.model_url == "https://openrouter.ai/api/v1"
+        assert config.api_key_env == "OPENROUTER_API_KEY"
+        assert config.judge_model_id == "google/gemma-4-26b-a4b-it:free"
+        assert config.provider == "openai"
+
+    def test_default_provider_is_openai(self) -> None:
+        from services.langextract import LangExtractConfig
+
+        config = LangExtractConfig()
+        assert config.provider == "openai"
+
+    def test_custom_provider(self) -> None:
+        from services.langextract import LangExtractConfig
+
+        config = LangExtractConfig(provider="ollama")
+        assert config.provider == "ollama"
 
     def test_from_repos_yaml(self) -> None:
         """Config can be loaded from repos.yaml langextract section."""
         from services.langextract import LangExtractConfig
 
         yaml_config = {
-            "model_id": "gemma4:31b-cloud",
-            "model_url": "http://localhost:11434",
-            "api_key_env": "OLLAMA_API_KEY",
+            "model_id": "google/gemini-3.1-flash-lite-preview",
+            "model_url": "https://openrouter.ai/api/v1",
+            "api_key_env": "OPENROUTER_API_KEY",
+            "provider": "openai",
         }
         config = LangExtractConfig.from_dict(yaml_config)
-        assert config.model_id == "gemma4:31b-cloud"
-        assert config.model_url == "http://localhost:11434"
+        assert config.model_id == "google/gemini-3.1-flash-lite-preview"
+        assert config.model_url == "https://openrouter.ai/api/v1"
+        assert config.provider == "openai"
+
+    def test_from_dict_default_api_key_env_is_openrouter(self) -> None:
+        """from_dict defaults api_key_env to OPENROUTER_API_KEY, not OLLAMA_API_KEY."""
+        from services.langextract import LangExtractConfig
+
+        config = LangExtractConfig.from_dict({})
+        assert config.api_key_env == "OPENROUTER_API_KEY"
+
+    def test_from_dict_temperature_parsing(self) -> None:
+        """from_dict parses temperature from YAML config."""
+        from services.langextract import LangExtractConfig
+
+        config = LangExtractConfig.from_dict({"temperature": 0.7})
+        assert config.temperature == 0.7
+
+    def test_from_dict_default_temperature(self) -> None:
+        """from_dict defaults temperature to 0.0 when not specified."""
+        from services.langextract import LangExtractConfig
+
+        config = LangExtractConfig.from_dict({})
+        assert config.temperature == 0.0
 
     def test_env_vars_read_at_construction_time(self) -> None:
         """LangExtractConfig reads env vars when instantiated, not at class definition."""
-        import os
         from services.langextract import LangExtractConfig
 
-        key = "LANDEXTRACT_MODEL_ID"
+        key = "LANGEXTRACT_MODEL_ID"
         original = os.environ.get(key)
         try:
             if key in os.environ:
                 del os.environ[key]
             config_before = LangExtractConfig()
-            assert config_before.model_id == ""
+            assert config_before.model_id == "google/gemini-3.1-flash-lite-preview"
 
             os.environ[key] = "post-import-model"
             config_after = LangExtractConfig()
@@ -263,6 +301,98 @@ class TestExtractConstraintsHappyPath:
         mock_extract.assert_called_once()
         call_kwargs = mock_extract.call_args
         assert "prompt_description" in call_kwargs.kwargs or len(call_kwargs.args) > 0
+
+
+class TestExtractConstraintsConfigRouting:
+    """ADRExtractor uses factory.ModelConfig with explicit provider for OpenRouter."""
+
+    @patch("services.langextract.lx.extract")
+    def test_config_parameter_uses_factory_model_config(self, mock_extract: MagicMock) -> None:
+        """extract_constraints passes config=factory.ModelConfig to lx.extract."""
+        from services.langextract import ADRExtractor, LangExtractConfig
+
+        os.environ["TEST_API_KEY"] = "test-key-123"
+        try:
+            mock_extract.return_value = _make_langextract_result([_make_extraction()])
+
+            config = LangExtractConfig(
+                model_id="google/gemini-3.1-flash-lite-preview",
+                model_url="https://openrouter.ai/api/v1",
+                api_key_env="TEST_API_KEY",
+                provider="openai",
+            )
+            extractor = ADRExtractor(config=config)
+            extractor.extract_constraints(
+                adr_text=ADR_001_TEXT,
+                adr_id="ADR-001",
+                adr_path="docs/adr/ADR-001-mysql-storage.md",
+            )
+
+            mock_extract.assert_called_once()
+            call_kwargs = mock_extract.call_args.kwargs
+            assert "config" in call_kwargs
+            model_config = call_kwargs["config"]
+            assert model_config.provider == "openai"
+            assert model_config.model_id == "google/gemini-3.1-flash-lite-preview"
+            assert "base_url" in model_config.provider_kwargs
+            assert model_config.provider_kwargs["base_url"] == "https://openrouter.ai/api/v1"
+            assert "api_key" in model_config.provider_kwargs
+            assert model_config.provider_kwargs["api_key"] == "test-key-123"
+        finally:
+            del os.environ["TEST_API_KEY"]
+
+    @patch("services.langextract.lx.extract")
+    def test_config_parameter_maps_model_url_to_base_url(self, mock_extract: MagicMock) -> None:
+        """model_url is mapped to base_url in provider_kwargs for OpenAI provider."""
+        from services.langextract import ADRExtractor, LangExtractConfig
+
+        os.environ["TEST_API_KEY"] = "test-key"
+        try:
+            mock_extract.return_value = _make_langextract_result([])
+
+            config = LangExtractConfig(
+                model_url="https://custom-llm.example.com/v1",
+                api_key_env="TEST_API_KEY",
+                provider="openai",
+            )
+            extractor = ADRExtractor(config=config)
+            extractor.extract_constraints(
+                adr_text="Some text",
+                adr_id="ADR-001",
+                adr_path="docs/adr/ADR-001.md",
+            )
+
+            call_kwargs = mock_extract.call_args.kwargs
+            model_config = call_kwargs["config"]
+            assert model_config.provider_kwargs["base_url"] == "https://custom-llm.example.com/v1"
+        finally:
+            del os.environ["TEST_API_KEY"]
+
+    @patch("services.langextract.lx.extract")
+    def test_no_direct_model_id_or_api_key_in_call(self, mock_extract: MagicMock) -> None:
+        """extract_constraints should use config= parameter, not model_id= or api_key= directly."""
+        from services.langextract import ADRExtractor, LangExtractConfig
+
+        os.environ["TEST_API_KEY"] = "test-key"
+        try:
+            mock_extract.return_value = _make_langextract_result([])
+
+            config = LangExtractConfig(api_key_env="TEST_API_KEY")
+            extractor = ADRExtractor(config=config)
+            extractor.extract_constraints(
+                adr_text="Some text",
+                adr_id="ADR-001",
+                adr_path="docs/adr/ADR-001.md",
+            )
+
+            call_kwargs = mock_extract.call_args.kwargs
+            # config= should be present, model_id= and api_key= should NOT
+            assert "config" in call_kwargs
+            assert "model_id" not in call_kwargs
+            assert "api_key" not in call_kwargs
+            assert "model_url" not in call_kwargs
+        finally:
+            del os.environ["TEST_API_KEY"]
 
 
 # ===========================================================================
@@ -530,10 +660,10 @@ class TestConfigFromYaml:
         from services.langextract import ADRExtractor, LangExtractConfig
 
         config = LangExtractConfig(
-            model_id="gemma4:31b-cloud",
-            model_url="http://localhost:11434",
-            api_key_env="OLLAMA_API_KEY",
+            model_id="google/gemini-3.1-flash-lite-preview",
+            model_url="https://openrouter.ai/api/v1",
+            api_key_env="OPENROUTER_API_KEY",
         )
         extractor = ADRExtractor(config=config)
-        assert extractor.config.model_id == "gemma4:31b-cloud"
-        assert extractor.config.model_url == "http://localhost:11434"
+        assert extractor.config.model_id == "google/gemini-3.1-flash-lite-preview"
+        assert extractor.config.model_url == "https://openrouter.ai/api/v1"

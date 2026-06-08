@@ -29,9 +29,7 @@ No module outside app.database shall import mysql.connector directly.
 
 # Use env vars but fall back to localhost for local runs
 # (Docker uses host.docker.internal, which doesn't resolve outside containers)
-model_url = os.getenv("LANDEXTRACT_MODEL_URL", "http://localhost:11434")
-if model_url == "http://host.docker.internal:11434":
-    model_url = "http://localhost:11434"
+model_url = os.getenv("LANGEXTRACT_MODEL_URL", "https://openrouter.ai/api/v1")
 
 config = LangExtractConfig(model_url=model_url)
 extractor = ADRExtractor(config=config)
