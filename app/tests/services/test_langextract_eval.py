@@ -124,7 +124,7 @@ class TestExtractForbiddenDependency:
     """Extract prohibits_dependency constraints from ADR-001."""
 
     @pytest.fixture
-    def result(self, extractor) -> "ExtractionResult | None":
+    def result(self, extractor):
         """Extract constraints from ADR-001 and return the result."""
         return extractor.extract_constraints(
             adr_text=ADR_FORBIDDEN_DEP,
@@ -143,21 +143,15 @@ class TestExtractForbiddenDependency:
 
     def test_extracts_at_least_one_constraint(self, result) -> None:
         """ADR-001 should produce at least one prohibits_dependency constraint."""
-        if result is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
         assert len(result.constraints) >= 1
 
     def test_prohibits_dependency_found(self, result) -> None:
         """At least one constraint should be prohibits_dependency."""
-        if result is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
         predicates = {c.predicate.value for c in result.constraints}
         assert "prohibits_dependency" in predicates
 
     def test_no_api_errors(self, result) -> None:
         """Extraction should not produce API errors."""
-        if result is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
         api_errors = [e for e in result.errors if e.error_type == "api_failure"]
         assert len(api_errors) == 0, f"API errors: {[e.message for e in api_errors]}"
 
@@ -166,7 +160,7 @@ class TestExtractRequiredImplementation:
     """Extract requires_implementation constraints from ADR-003."""
 
     @pytest.fixture
-    def result(self, extractor) -> "ExtractionResult | None":
+    def result(self, extractor):
         return extractor.extract_constraints(
             adr_text=ADR_REQUIRED_IMPL,
             adr_id="ADR-003",
@@ -175,14 +169,10 @@ class TestExtractRequiredImplementation:
 
     def test_extracts_at_least_one_constraint(self, result) -> None:
         """ADR-003 should produce at least one constraint."""
-        if result is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
         assert len(result.constraints) >= 1
 
     def test_requires_implementation_found(self, result) -> None:
         """At least one constraint should be requires_implementation."""
-        if result is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
         predicates = {c.predicate.value for c in result.constraints}
         assert "requires_implementation" in predicates
 
@@ -191,7 +181,7 @@ class TestExtractNoConstraints:
     """An ADR with no enforceable constraints produces empty results."""
 
     @pytest.fixture
-    def result(self, extractor) -> "ExtractionResult | None":
+    def result(self, extractor):
         return extractor.extract_constraints(
             adr_text=ADR_NO_CONSTRAINTS,
             adr_id="ADR-006",
@@ -200,14 +190,10 @@ class TestExtractNoConstraints:
 
     def test_no_constraints_found(self, result) -> None:
         """ADR-006 has no architectural constraints."""
-        if result is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
         assert len(result.constraints) == 0
 
     def test_no_errors(self, result) -> None:
         """No errors for a valid ADR with no constraints."""
-        if result is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
         assert len(result.errors) == 0
 
 
@@ -221,7 +207,7 @@ class TestJudgeEvaluation:
     MINIMUM_SCORE = 0.7  # 70% minimum precision/recall threshold
 
     @pytest.fixture
-    def adr001_extraction(self, extractor) -> "ExtractionResult | None":
+    def adr001_extraction(self, extractor):
         return extractor.extract_constraints(
             adr_text=ADR_FORBIDDEN_DEP,
             adr_id="ADR-001",
@@ -236,9 +222,6 @@ class TestJudgeEvaluation:
         2. Sends the extraction + original ADR text to a judge LLM
         3. Asserts the judge's precision/recall score meets the minimum threshold
         """
-        if adr001_extraction is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
-
         # If extraction produced errors, skip judge evaluation
         if adr001_extraction.errors:
             # API failures mean we can't evaluate quality
@@ -272,7 +255,7 @@ class TestDeterminism:
     """Verify that temperature=0.0 produces deterministic extraction."""
 
     @pytest.fixture
-    def first_result(self, extractor) -> "ExtractionResult | None":
+    def first_result(self, extractor):
         return extractor.extract_constraints(
             adr_text=ADR_FORBIDDEN_DEP,
             adr_id="ADR-001",
@@ -280,7 +263,7 @@ class TestDeterminism:
         )
 
     @pytest.fixture
-    def second_result(self, extractor) -> "ExtractionResult | None":
+    def second_result(self, extractor):
         return extractor.extract_constraints(
             adr_text=ADR_FORBIDDEN_DEP,
             adr_id="ADR-001",
@@ -297,9 +280,6 @@ class TestDeterminism:
         the decision log). If it fails, it indicates non-determinism in
         the LLM provider, not a bug in the extraction module.
         """
-        if first_result is None or second_result is None:
-            pytest.skip(f"{API_KEY_ENV} not set")
-
         first_subjects = {c.subject for c in first_result.constraints}
         second_subjects = {c.subject for c in second_result.constraints}
         assert first_subjects == second_subjects, (

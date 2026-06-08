@@ -333,9 +333,11 @@ class TestWriteConstraints:
 
         assert output_path.exists()
         data = json.loads(output_path.read_text())
-        assert len(data) == 1
-        assert data[0]["subject"] == "app.services.*"
-        assert data[0]["predicate"] == "prohibits_dependency"
+        assert "constraints" in data
+        assert "errors" in data
+        assert len(data["constraints"]) == 1
+        assert data["constraints"][0]["subject"] == "app.services.*"
+        assert data["constraints"][0]["predicate"] == "prohibits_dependency"
 
     def test_writes_multiple_results(self, tmp_path: Path) -> None:
         """Multiple ExtractionResults from different ADRs are all written."""
@@ -366,7 +368,7 @@ class TestWriteConstraints:
         write_constraints(results, output_path)
 
         data = json.loads(output_path.read_text())
-        assert len(data) == 2
+        assert len(data["constraints"]) == 2
 
     def test_includes_errors_in_output(self, tmp_path: Path) -> None:
         """ExtractionErrors are included in the JSON output for traceability."""
@@ -389,8 +391,8 @@ class TestWriteConstraints:
         write_constraints(results, output_path)
 
         data = json.loads(output_path.read_text())
-        # Errors should be present in the output file
-        assert len(data) >= 1
+        assert len(data["errors"]) == 1
+        assert data["errors"][0]["error_type"] == "api_failure"
 
     def test_creates_parent_directories(self, tmp_path: Path) -> None:
         """write_constraints creates the output directory if it doesn't exist."""
@@ -408,12 +410,12 @@ class TestWriteConstraints:
 
         assert output_path.exists()
 
-    def test_empty_results_writes_empty_array(self, tmp_path: Path) -> None:
-        """An empty list of results writes an empty JSON array."""
+    def test_empty_results_writes_empty_object(self, tmp_path: Path) -> None:
+        """An empty list of results writes a JSON object with empty arrays."""
         from services.langextract import write_constraints
 
         output_path = tmp_path / "seeds" / "flask" / "constraints.json"
         write_constraints([], output_path)
 
         data = json.loads(output_path.read_text())
-        assert data == []
+        assert data == {"constraints": [], "errors": []}

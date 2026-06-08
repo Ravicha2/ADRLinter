@@ -108,6 +108,11 @@ class ConstraintEdge:
             raise ValueError("adr_id must be non-empty")
         if not self.adr_path:
             raise ValueError("adr_path must be non-empty")
+        start, end = self.char_interval
+        if start < 0:
+            raise ValueError(f"char_interval start must be >= 0, got {start}")
+        if end <= start:
+            raise ValueError(f"char_interval end must be > start, got ({start}, {end})")
 
 
 @dataclass

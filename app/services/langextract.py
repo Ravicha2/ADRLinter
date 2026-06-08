@@ -33,7 +33,7 @@ class LangExtractConfig:
 
     def __post_init__(self) -> None:
         if self.model_id is None:
-            self.model_id = os.getenv("LANGEXTRACT_MODEL_ID", "google/gemini-3.1-flash-lite-preview")
+            self.model_id = os.getenv("LANGEXTRACT_MODEL_ID", "google/gemini-3.1-flash-lite")
         if self.model_url is None:
             self.model_url = os.getenv("LANGEXTRACT_MODEL_URL", "https://openrouter.ai/api/v1")
         if self.judge_model_id is None:
@@ -42,11 +42,11 @@ class LangExtractConfig:
     @classmethod
     def from_dict(cls, raw: dict) -> LangExtractConfig:
         return cls(
-            model_id=raw.get("model_id", os.getenv("LANGEXTRACT_MODEL_ID", "google/gemini-3.1-flash-lite-preview")),
-            model_url=raw.get("model_url", os.getenv("LANGEXTRACT_MODEL_URL", "https://openrouter.ai/api/v1")),
+            model_id=raw.get("model_id"),
+            model_url=raw.get("model_url"),
             api_key_env=raw.get("api_key_env", "OPENROUTER_API_KEY"),
             provider=raw.get("provider", "openai"),
-            judge_model_id=raw.get("judge_model_id", os.getenv("LANGEXTRACT_JUDGE_MODEL_ID", "google/gemma-4-26b-a4b-it:free")),
+            judge_model_id=raw.get("judge_model_id"),
             temperature=raw.get("temperature", 0.0),
         )
 
@@ -70,11 +70,11 @@ FEW_SHOT_EXAMPLES = [
         extractions=[
             lx.data.Extraction(
                 extraction_class="adr_constraint",
-                extraction_text="app.services.* prohibits_dependency app.db.mysql",
+                extraction_text="app.services namespace",
                 attributes={
                     "subject": "app.services.*",
                     "predicate": "prohibits_dependency",
-                    "object": "app.db.mysql",
+                    "object": "mysql.connector",
                     "justification": "Direct MySQL connections are prohibited for services.",
                 },
             )
@@ -86,7 +86,7 @@ FEW_SHOT_EXAMPLES = [
         extractions=[
             lx.data.Extraction(
                 extraction_class="adr_constraint",
-                extraction_text="app.api.* requires_implementation app.auth.middleware",
+                extraction_text="app.auth.middleware",
                 attributes={
                     "subject": "app.api.*",
                     "predicate": "requires_implementation",
@@ -102,7 +102,7 @@ FEW_SHOT_EXAMPLES = [
         extractions=[
             lx.data.Extraction(
                 extraction_class="adr_constraint",
-                extraction_text="users.views prohibits_dependency users.models",
+                extraction_text="users.views",
                 attributes={
                     "subject": "users.views",
                     "predicate": "prohibits_dependency",
@@ -229,8 +229,14 @@ class ADRExtractor:
     def extract_from_directory(self, adr_dir: Path) -> list[ExtractionResult]:
         try:
             adr_files = sorted(adr_dir.glob("ADR-*.md"))
-        except OSError:
-            return []
+        except OSError as exc:
+            return [ExtractionResult(
+                errors=[ExtractionError(
+                    message=f"Cannot read ADR directory: {exc}",
+                    adr_path=str(adr_dir),
+                    error_type="directory_unavailable",
+                )]
+            )]
         if not adr_files:
             return []
         return [self.extract_from_file(f) for f in adr_files]
@@ -273,10 +279,11 @@ def extract_all_adrs(
 def write_constraints(results: list[ExtractionResult], output_path: Path) -> None:
     """Write extracted constraints to JSON for the Merge Layer."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    entries: list[dict] = []
+    constraints: list[dict] = []
+    errors: list[dict] = []
     for result in results:
         for c in result.constraints:
-            entries.append({
+            constraints.append({
                 "subject": c.subject,
                 "predicate": c.predicate.value,
                 "object": c.object,
@@ -286,9 +293,9 @@ def write_constraints(results: list[ExtractionResult], output_path: Path) -> Non
                 "adr_path": c.adr_path,
             })
         for e in result.errors:
-            entries.append({
+            errors.append({
                 "error_type": e.error_type,
                 "message": e.message,
                 "adr_path": e.adr_path,
             })
-    output_path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
+    output_path.write_text(json.dumps({"constraints": constraints, "errors": errors}, indent=2), encoding="utf-8")

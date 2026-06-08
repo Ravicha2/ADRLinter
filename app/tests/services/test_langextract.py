@@ -130,13 +130,13 @@ class TestLangExtractConfig:
         from services.langextract import LangExtractConfig
 
         config = LangExtractConfig(
-            model_id="google/gemini-3.1-flash-lite-preview",
+            model_id="google/gemini-3.1-flash-lite",
             model_url="https://openrouter.ai/api/v1",
             api_key_env="OPENROUTER_API_KEY",
             judge_model_id="google/gemma-4-26b-a4b-it:free",
             provider="openai",
         )
-        assert config.model_id == "google/gemini-3.1-flash-lite-preview"
+        assert config.model_id == "google/gemini-3.1-flash-lite"
         assert config.model_url == "https://openrouter.ai/api/v1"
         assert config.api_key_env == "OPENROUTER_API_KEY"
         assert config.judge_model_id == "google/gemma-4-26b-a4b-it:free"
@@ -159,13 +159,13 @@ class TestLangExtractConfig:
         from services.langextract import LangExtractConfig
 
         yaml_config = {
-            "model_id": "google/gemini-3.1-flash-lite-preview",
+            "model_id": "google/gemini-3.1-flash-lite",
             "model_url": "https://openrouter.ai/api/v1",
             "api_key_env": "OPENROUTER_API_KEY",
             "provider": "openai",
         }
         config = LangExtractConfig.from_dict(yaml_config)
-        assert config.model_id == "google/gemini-3.1-flash-lite-preview"
+        assert config.model_id == "google/gemini-3.1-flash-lite"
         assert config.model_url == "https://openrouter.ai/api/v1"
         assert config.provider == "openai"
 
@@ -200,7 +200,7 @@ class TestLangExtractConfig:
             if key in os.environ:
                 del os.environ[key]
             config_before = LangExtractConfig()
-            assert config_before.model_id == "google/gemini-3.1-flash-lite-preview"
+            assert config_before.model_id == "google/gemini-3.1-flash-lite"
 
             os.environ[key] = "post-import-model"
             config_after = LangExtractConfig()
@@ -316,7 +316,7 @@ class TestExtractConstraintsConfigRouting:
             mock_extract.return_value = _make_langextract_result([_make_extraction()])
 
             config = LangExtractConfig(
-                model_id="google/gemini-3.1-flash-lite-preview",
+                model_id="google/gemini-3.1-flash-lite",
                 model_url="https://openrouter.ai/api/v1",
                 api_key_env="TEST_API_KEY",
                 provider="openai",
@@ -333,7 +333,7 @@ class TestExtractConstraintsConfigRouting:
             assert "config" in call_kwargs
             model_config = call_kwargs["config"]
             assert model_config.provider == "openai"
-            assert model_config.model_id == "google/gemini-3.1-flash-lite-preview"
+            assert model_config.model_id == "google/gemini-3.1-flash-lite"
             assert "base_url" in model_config.provider_kwargs
             assert model_config.provider_kwargs["base_url"] == "https://openrouter.ai/api/v1"
             assert "api_key" in model_config.provider_kwargs
@@ -555,9 +555,8 @@ class TestExtractConstraintsAPIFailure:
 class TestExtractFromFile:
     """extract_from_file reads an ADR file and extracts constraints."""
 
-    @patch.object(Path, "read_text", return_value=ADR_001_TEXT)
     @patch("services.langextract.lx.extract")
-    def test_extracts_from_markdown_file(self, mock_extract: MagicMock, mock_read_text: MagicMock) -> None:
+    def test_extracts_from_markdown_file(self, mock_extract: MagicMock, tmp_path: Path) -> None:
         """extract_from_file reads .md file and passes text to extract_constraints."""
         from services.langextract import ADRExtractor, LangExtractConfig
 
@@ -568,30 +567,26 @@ class TestExtractFromFile:
         config = LangExtractConfig(api_key_env="TEST_API_KEY")
         extractor = ADRExtractor(config=config)
 
-        adr_path = Path("docs/adr/ADR-001-mysql-storage.md")
+        adr_path = tmp_path / "ADR-001-mysql-storage.md"
+        adr_path.write_text(ADR_001_TEXT, encoding="utf-8")
+
         result = extractor.extract_from_file(adr_path)
 
-        # Should call extract with the file's text content
+        assert len(result.constraints) == 1
         assert mock_extract.called
 
     @patch("services.langextract.lx.extract")
     def test_adr_id_parsed_from_filename(self, mock_extract: MagicMock) -> None:
-        """ADR-001-mysql-storage.md is parsed as adr_id='ADR-001'."""
-        from services.langextract import ADRExtractor, LangExtractConfig
+        """_parse_adr_id correctly extracts ADR IDs from various filenames."""
+        from services.langextract import _parse_adr_id
 
-        mock_extract.return_value = _make_langextract_result([])
+        assert _parse_adr_id("docs/adr/ADR-001-mysql-storage.md") == "ADR-001"
+        assert _parse_adr_id("ADR-003-auth-middleware.md") == "ADR-003"
+        assert _parse_adr_id("docs/adr/ADR-999-legacy.md") == "ADR-999"
+        assert _parse_adr_id("adr-005-microservices.md") == "ADR-005"
 
-        config = LangExtractConfig(api_key_env="TEST_API_KEY")
-        extractor = ADRExtractor(config=config)
-
-        # We can't read a real file, but we verify the adr_id parsing logic
-        # by checking that extract_from_file extracts the ADR ID from the stem
-        adr_path = Path("docs/adr/ADR-001-mysql-storage.md")
-        # The adr_id should be derived from the filename
-        stem = adr_path.stem  # "ADR-001-mysql-storage"
-        parts = stem.split("-")
-        expected_adr_id = f"{parts[0]}-{parts[1]}"  # "ADR-001"
-        assert expected_adr_id == "ADR-001"
+        # Non-ADR filename falls back to stem
+        assert _parse_adr_id("docs/adr/style-guide.md") == "style-guide"
 
 
 # ===========================================================================
@@ -608,16 +603,22 @@ class TestExtractFromDirectory:
         """extract_from_directory processes all ADR-*.md files in a directory."""
         from services.langextract import ADRExtractor, LangExtractConfig
 
-        mock_extract.return_value = _make_langextract_result([])
+        mock_extract.return_value = _make_langextract_result([_make_extraction()])
 
         config = LangExtractConfig(api_key_env="TEST_API_KEY")
         extractor = ADRExtractor(config=config)
 
-        # Create mock file paths
         adr_dir = Path("/fake/adr/dir")
-        # The extractor should glob for ADR-*.md files
-        # and call extract_from_file for each
-        # We're testing the directory scanning behavior
+        mock_glob.return_value = [
+            adr_dir / "ADR-001-mysql-storage.md",
+            adr_dir / "ADR-003-auth-middleware.md",
+        ]
+
+        with patch.object(Path, "read_text", return_value=ADR_001_TEXT):
+            results = extractor.extract_from_directory(adr_dir)
+
+        assert len(results) == 2
+        assert mock_extract.call_count == 2
 
     @patch("services.langextract.lx.extract")
     def test_empty_directory_returns_empty(self, mock_extract: MagicMock) -> None:
@@ -660,10 +661,10 @@ class TestConfigFromYaml:
         from services.langextract import ADRExtractor, LangExtractConfig
 
         config = LangExtractConfig(
-            model_id="google/gemini-3.1-flash-lite-preview",
+            model_id="google/gemini-3.1-flash-lite",
             model_url="https://openrouter.ai/api/v1",
             api_key_env="OPENROUTER_API_KEY",
         )
         extractor = ADRExtractor(config=config)
-        assert extractor.config.model_id == "google/gemini-3.1-flash-lite-preview"
+        assert extractor.config.model_id == "google/gemini-3.1-flash-lite"
         assert extractor.config.model_url == "https://openrouter.ai/api/v1"

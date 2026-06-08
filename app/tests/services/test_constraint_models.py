@@ -195,6 +195,32 @@ class TestConstraintEdgeValidation:
                 adr_id="ADR-001",
             )
 
+    def test_inverted_char_interval_rejected(self) -> None:
+        """char_interval with end <= start is rejected."""
+        with pytest.raises(ValueError, match="end must be > start"):
+            ConstraintEdge(
+                subject="app.services.*",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object="app.db.mysql",
+                justification="Test",
+                char_interval=(200, 100),
+                adr_id="ADR-001",
+                adr_path="docs/adr/ADR-001.md",
+            )
+
+    def test_negative_char_interval_start_rejected(self) -> None:
+        """char_interval with negative start is rejected."""
+        with pytest.raises(ValueError, match="start must be >= 0"):
+            ConstraintEdge(
+                subject="app.services.*",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object="app.db.mysql",
+                justification="Test",
+                char_interval=(-5, 10),
+                adr_id="ADR-001",
+                adr_path="docs/adr/ADR-001.md",
+            )
+
 
 # ===========================================================================
 # 4. ExtractionError
