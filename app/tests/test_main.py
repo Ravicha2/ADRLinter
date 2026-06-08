@@ -11,7 +11,7 @@ if "neo4j" not in sys.modules:
 
 from fastapi.testclient import TestClient
 
-from services.langextract import LangExtractConfig
+from services.adr_extract import LangExtractConfig
 
 
 @pytest.fixture

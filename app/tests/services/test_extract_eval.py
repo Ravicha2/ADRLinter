@@ -20,7 +20,7 @@ import os
 import json
 import requests
 import pytest
-from services.langextract import ADRExtractor, LangExtractConfig
+from services.adr_extract import ADRExtractor, LangExtractConfig
 from services.models import PredicateType
 
 
@@ -37,7 +37,7 @@ def extractor():
     """Create an ADRExtractor with real LLM backend."""
     if not HAS_API_KEY:
         pytest.skip(f"{API_KEY} not set")
-    from services.langextract import ADRExtractor, LangExtractConfig
+    from services.adr_extract import ADRExtractor, LangExtractConfig
 
     config = LangExtractConfig()
     return ADRExtractor(config=config)

@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from neo4j import GraphDatabase
 
 from cli.config import load_config
-from services.langextract import LangExtractConfig
+from services.adr_extract import LangExtractConfig
 
 app = FastAPI(title="ADRLinter", version="0.1.0")
 
