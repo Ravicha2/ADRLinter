@@ -31,9 +31,11 @@ API_KEY_ENV = os.environ.get("LANDEXTRACT_API_KEY_ENV", "OLLAMA_API_KEY")
 HAS_API_KEY = bool(os.environ.get(API_KEY_ENV))
 
 
-@pytest.fixture(skipif=lambda: not HAS_API_KEY, reason=f"{API_KEY_ENV} not set")
+@pytest.fixture
 def extractor():
     """Create an ADRExtractor with real LLM backend."""
+    if not HAS_API_KEY:
+        pytest.skip(f"{API_KEY_ENV} not set")
     from services.langextract import ADRExtractor, LangExtractConfig
 
     config = LangExtractConfig()
@@ -121,7 +123,7 @@ Respond in JSON format.
 class TestExtractForbiddenDependency:
     """Extract prohibits_dependency constraints from ADR-001."""
 
-    @pytest.fixture(skipif=lambda: not HAS_API_KEY, reason=f"{API_KEY_ENV} not set")
+    @pytest.fixture
     def result(self, extractor) -> "ExtractionResult | None":
         """Extract constraints from ADR-001 and return the result."""
         return extractor.extract_constraints(
@@ -130,7 +132,7 @@ class TestExtractForbiddenDependency:
             adr_path="docs/adr/ADR-001-mysql-storage.md",
         )
 
-    @pytest.fixture(skipif=lambda: not HAS_API_KEY, reason=f"{API_KEY_ENV} not set")
+    @pytest.fixture
     def result_no_skip(self, extractor):
         """Force extraction even without API key will skip at fixture level."""
         return extractor.extract_constraints(
@@ -163,7 +165,7 @@ class TestExtractForbiddenDependency:
 class TestExtractRequiredImplementation:
     """Extract requires_implementation constraints from ADR-003."""
 
-    @pytest.fixture(skipif=lambda: not HAS_API_KEY, reason=f"{API_KEY_ENV} not set")
+    @pytest.fixture
     def result(self, extractor) -> "ExtractionResult | None":
         return extractor.extract_constraints(
             adr_text=ADR_REQUIRED_IMPL,
@@ -188,7 +190,7 @@ class TestExtractRequiredImplementation:
 class TestExtractNoConstraints:
     """An ADR with no enforceable constraints produces empty results."""
 
-    @pytest.fixture(skipif=lambda: not HAS_API_KEY, reason=f"{API_KEY_ENV} not set")
+    @pytest.fixture
     def result(self, extractor) -> "ExtractionResult | None":
         return extractor.extract_constraints(
             adr_text=ADR_NO_CONSTRAINTS,
@@ -218,7 +220,7 @@ class TestJudgeEvaluation:
 
     MINIMUM_SCORE = 0.7  # 70% minimum precision/recall threshold
 
-    @pytest.fixture(skipif=lambda: not HAS_API_KEY, reason=f"{API_KEY_ENV} not set")
+    @pytest.fixture
     def adr001_extraction(self, extractor) -> "ExtractionResult | None":
         return extractor.extract_constraints(
             adr_text=ADR_FORBIDDEN_DEP,
@@ -269,7 +271,7 @@ class TestJudgeEvaluation:
 class TestDeterminism:
     """Verify that temperature=0.0 produces deterministic extraction."""
 
-    @pytest.fixture(skipif=lambda: not HAS_API_KEY, reason=f"{API_KEY_ENV} not set")
+    @pytest.fixture
     def first_result(self, extractor) -> "ExtractionResult | None":
         return extractor.extract_constraints(
             adr_text=ADR_FORBIDDEN_DEP,
@@ -277,7 +279,7 @@ class TestDeterminism:
             adr_path="docs/adr/ADR-001-mysql-storage.md",
         )
 
-    @pytest.fixture(skipif=lambda: not HAS_API_KEY, reason=f"{API_KEY_ENV} not set")
+    @pytest.fixture
     def second_result(self, extractor) -> "ExtractionResult | None":
         return extractor.extract_constraints(
             adr_text=ADR_FORBIDDEN_DEP,

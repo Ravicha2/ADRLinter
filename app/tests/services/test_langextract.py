@@ -128,28 +128,50 @@ class TestLangExtractConfig:
         from services.langextract import LangExtractConfig
 
         config = LangExtractConfig(
-            model_id="gpt-4o",
-            model_url="https://api.openai.com/v1",
-            api_key_env="OPENAI_API_KEY",
-            judge_model_id="gemini-3.5-flash",
+            model_id="gemma4:31b-cloud",
+            model_url="http://localhost:11434",
+            api_key_env="OLLAMA_API_KEY",
+            judge_model_id="qwen3.5:cloud",
         )
-        assert config.model_id == "gpt-4o"
-        assert config.model_url == "https://api.openai.com/v1"
-        assert config.api_key_env == "OPENAI_API_KEY"
-        assert config.judge_model_id == "gemini-3.5-flash"
+        assert config.model_id == "gemma4:31b-cloud"
+        assert config.model_url == "http://localhost:11434"
+        assert config.api_key_env == "OLLAMA_API_KEY"
+        assert config.judge_model_id == "qwen3.5:cloud"
 
     def test_from_repos_yaml(self) -> None:
         """Config can be loaded from repos.yaml langextract section."""
         from services.langextract import LangExtractConfig
 
         yaml_config = {
-            "model_id": "gpt-oss:120b",
-            "model_url": "https://ollama.com/api",
+            "model_id": "gemma4:31b-cloud",
+            "model_url": "http://localhost:11434",
             "api_key_env": "OLLAMA_API_KEY",
         }
         config = LangExtractConfig.from_dict(yaml_config)
-        assert config.model_id == "gpt-oss:120b"
-        assert config.model_url == "https://ollama.com/api"
+        assert config.model_id == "gemma4:31b-cloud"
+        assert config.model_url == "http://localhost:11434"
+
+    def test_env_vars_read_at_construction_time(self) -> None:
+        """LangExtractConfig reads env vars when instantiated, not at class definition."""
+        import os
+        from services.langextract import LangExtractConfig
+
+        key = "LANDEXTRACT_MODEL_ID"
+        original = os.environ.get(key)
+        try:
+            if key in os.environ:
+                del os.environ[key]
+            config_before = LangExtractConfig()
+            assert config_before.model_id == ""
+
+            os.environ[key] = "post-import-model"
+            config_after = LangExtractConfig()
+            assert config_after.model_id == "post-import-model"
+        finally:
+            if original is not None:
+                os.environ[key] = original
+            elif key in os.environ:
+                del os.environ[key]
 
 
 # ===========================================================================
@@ -403,8 +425,9 @@ class TestExtractConstraintsAPIFailure:
 class TestExtractFromFile:
     """extract_from_file reads an ADR file and extracts constraints."""
 
+    @patch.object(Path, "read_text", return_value=ADR_001_TEXT)
     @patch("services.langextract.lx.extract")
-    def test_extracts_from_markdown_file(self, mock_extract: MagicMock) -> None:
+    def test_extracts_from_markdown_file(self, mock_extract: MagicMock, mock_read_text: MagicMock) -> None:
         """extract_from_file reads .md file and passes text to extract_constraints."""
         from services.langextract import ADRExtractor, LangExtractConfig
 
@@ -507,10 +530,10 @@ class TestConfigFromYaml:
         from services.langextract import ADRExtractor, LangExtractConfig
 
         config = LangExtractConfig(
-            model_id="gpt-oss:120b",
-            model_url="https://ollama.com/api",
+            model_id="gemma4:31b-cloud",
+            model_url="http://localhost:11434",
             api_key_env="OLLAMA_API_KEY",
         )
         extractor = ADRExtractor(config=config)
-        assert extractor.config.model_id == "gpt-oss:120b"
-        assert extractor.config.model_url == "https://ollama.com/api"
+        assert extractor.config.model_id == "gemma4:31b-cloud"
+        assert extractor.config.model_url == "http://localhost:11434"

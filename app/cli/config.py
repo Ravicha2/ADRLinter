@@ -6,6 +6,8 @@ from pathlib import Path
 
 import yaml
 
+from services.langextract import LangExtractConfig
+
 
 @dataclass
 class Neo4jMemoryConfig:
@@ -28,6 +30,7 @@ class RepoConfig:
 class GlobalConfig:
     concurrency: dict[str, int] = field(default_factory=dict)
     repos: list[RepoConfig] = field(default_factory=list)
+    langextract: LangExtractConfig = field(default_factory=LangExtractConfig)
 
     def get_repo(self, repo_id: str) -> RepoConfig:
         for repo in self.repos:
@@ -67,7 +70,11 @@ def load_config(path: Path | None = None) -> GlobalConfig:
         for repo in data.get("repos", [])
     ]
 
+    langextract_data = data.get("langextract", {})
+    langextract_config = LangExtractConfig.from_dict(langextract_data or {})
+
     return GlobalConfig(
         concurrency=data.get("concurrency", {}),
         repos=repos,
+        langextract=langextract_config,
     )
