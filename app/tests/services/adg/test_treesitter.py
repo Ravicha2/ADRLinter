@@ -16,7 +16,7 @@ import pytest
 
 from services.fqn import FQN
 from services.models import ADG, Edge, FQNKind, FQNNode
-from services.treesitter import parse_repo
+from services.adg import parse_repo
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from services.git_adapter import GitAdapter
+from services.cpt import GitAdapter
 from services.models import CommitDiff, FileChange
 
 

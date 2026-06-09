@@ -8,8 +8,8 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from services.adr_extract import ADRExtractor
-from services._extract_config import LangExtractConfig
+from services.extract import ADRExtractor
+from services.extract import LangExtractConfig
 from services.models import PredicateType
 
 # Load .env from project root so LANDEXTRACT_MODEL_ID etc. are available

@@ -13,7 +13,7 @@ import pytest
 
 from services.fqn import FQN
 from services.models import ChangedFQN, CommitDiff, DiffResult, FileChange, FQNKind
-from services.diff_processor import process_diff
+from services.cpt import process_diff
 
 
 # ---------------------------------------------------------------------------

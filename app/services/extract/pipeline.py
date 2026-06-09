@@ -1,26 +1,15 @@
-"""ADR constraint extraction facade.
-
-Re-exports from private modules so existing imports keep working.
-Orchestration functions live here because they compose the extractor
-with I/O helpers.
-"""
+"""ADR constraint extraction pipeline. Orchestrates extraction across ADR files."""
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-# Re-export public names from private modules.
-# Importing LangExtractConfig from _extract_config does NOT pull in langextract.
-from services._extract_config import LangExtractConfig
-from services._extract_engine import ADRExtractor
-from services._extract_io import is_adr_file, parse_adr_id
-from services._extract_logging import ADRLogEntry
-from services._extract_prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
+from services.extract.config import LangExtractConfig
+from services.extract.engine import ADRExtractor
+from services.extract.io import is_adr_file, parse_adr_id
+from services.extract.logging import ADRLogEntry
+from services.extract.prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
 from services.models import CommitDiff, ExtractionError, ExtractionResult
-
-
-# Re-export _parse_adr_id under its old private name for backward compat
-_parse_adr_id = parse_adr_id
 
 
 def extract_changed_adrs(
@@ -78,17 +67,3 @@ def write_constraints(results: list[ExtractionResult], output_path: Path) -> Non
                 "adr_path": e.adr_path,
             })
     output_path.write_text(json.dumps({"constraints": constraints, "errors": errors}, indent=2), encoding="utf-8")
-
-
-__all__ = [
-    "ADRExtractor",
-    "ADRLogEntry",
-    "FEW_SHOT_EXAMPLES",
-    "LangExtractConfig",
-    "PROMPT_DESCRIPTION",
-    "extract_all_adrs",
-    "extract_changed_adrs",
-    "is_adr_file",
-    "parse_adr_id",
-    "write_constraints",
-]

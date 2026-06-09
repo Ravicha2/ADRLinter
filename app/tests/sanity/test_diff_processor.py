@@ -1,7 +1,7 @@
 """Sanity check: run process_diff through every file status with print output."""
 
 from services.models import CommitDiff, FileChange
-from services.diff_processor import process_diff
+from services.cpt import process_diff
 
 
 def run(label: str, diff: CommitDiff) -> None:
