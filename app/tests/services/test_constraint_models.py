@@ -1,7 +1,8 @@
 """Tests for ConstraintEdge, ExtractionError, ExtractionResult, and PredicateType.
 
 Public interface under test:
-    PredicateType: enum with PROHIBITS_DEPENDENCY and REQUIRES_IMPLEMENTATION
+    PredicateType: enum with PROHIBITS_DEPENDENCY, REQUIRES_IMPLEMENTATION,
+                         REQUIRES_DEPENDENCY, PROHIBITS_IMPLEMENTATION
     ConstraintEdge: dataclass with subject, predicate, object, justification,
                      char_interval, adr_id, adr_path
     ExtractionError: dataclass with message, adr_path, error_type
@@ -21,7 +22,7 @@ from services.models import ConstraintEdge, ExtractionError, ExtractionResult, P
 
 
 class TestPredicateType:
-    """PredicateType has exactly two values for ADR constraint predicates."""
+    """PredicateType has four values for ADR constraint predicates."""
 
     def test_prohibits_dependency_value(self) -> None:
         assert PredicateType.PROHIBITS_DEPENDENCY.value == "prohibits_dependency"
@@ -29,14 +30,22 @@ class TestPredicateType:
     def test_requires_implementation_value(self) -> None:
         assert PredicateType.REQUIRES_IMPLEMENTATION.value == "requires_implementation"
 
+    def test_requires_dependency_value(self) -> None:
+        assert PredicateType.REQUIRES_DEPENDENCY.value == "requires_dependency"
+
+    def test_prohibits_implementation_value(self) -> None:
+        assert PredicateType.PROHIBITS_IMPLEMENTATION.value == "prohibits_implementation"
+
     def test_enum_membership(self) -> None:
-        """PredicateType has exactly two members."""
-        assert len(PredicateType) == 2
+        """PredicateType has exactly four members."""
+        assert len(PredicateType) == 4
 
     def test_from_value(self) -> None:
         """PredicateType can be constructed from its string value."""
         assert PredicateType("prohibits_dependency") is PredicateType.PROHIBITS_DEPENDENCY
         assert PredicateType("requires_implementation") is PredicateType.REQUIRES_IMPLEMENTATION
+        assert PredicateType("requires_dependency") is PredicateType.REQUIRES_DEPENDENCY
+        assert PredicateType("prohibits_implementation") is PredicateType.PROHIBITS_IMPLEMENTATION
 
     def test_invalid_value_raises(self) -> None:
         """Invalid predicate string raises ValueError."""
@@ -79,6 +88,32 @@ class TestConstraintEdgeConstruction:
         )
         assert edge.predicate is PredicateType.REQUIRES_IMPLEMENTATION
         assert edge.object == "app.auth.middleware"
+
+    def test_requires_dependency_constraint(self) -> None:
+        edge = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.REQUIRES_DEPENDENCY,
+            object="app.auth.middleware",
+            justification="All API endpoints must use the auth middleware.",
+            char_interval=(10, 80),
+            adr_id="ADR-004",
+            adr_path="docs/adr/ADR-004-auth-required.md",
+        )
+        assert edge.predicate is PredicateType.REQUIRES_DEPENDENCY
+        assert edge.object == "app.auth.middleware"
+
+    def test_prohibits_implementation_constraint(self) -> None:
+        edge = ConstraintEdge(
+            subject="app.services.*",
+            predicate=PredicateType.PROHIBITS_IMPLEMENTATION,
+            object="app.auth.middleware",
+            justification="No service shall implement its own authentication logic.",
+            char_interval=(20, 90),
+            adr_id="ADR-005",
+            adr_path="docs/adr/ADR-005-auth-centralized.md",
+        )
+        assert edge.predicate is PredicateType.PROHIBITS_IMPLEMENTATION
+        assert edge.subject == "app.services.*"
 
     def test_nonexistent_fqn_object(self) -> None:
         """ConstraintEdge accepts FQNs that don't exist in the codebase yet.

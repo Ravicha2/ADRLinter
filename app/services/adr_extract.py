@@ -56,10 +56,21 @@ class LangExtractConfig:
 # Few-shot examples (must be ExampleData objects, not raw dicts)
 
 PROMPT_DESCRIPTION = (
-    "Extract architectural constraints from ADR documents. "
-    "Each constraint has a subject (FQN or wildcard), a predicate "
-    "(prohibits_dependency or requires_implementation), an object (FQN or wildcard), "
-    "and a justification (the natural language reason from the ADR text)."
+    "Extract architectural constraints from ADR documents.\n"
+    "\n"
+    "Predicates:\n"
+    "- prohibits_dependency: the subject module must NOT import or call the object module\n"
+    "- requires_dependency: the subject module MUST import or call the object module\n"
+    "- prohibits_implementation: the subject module must NOT define the logic described by the object\n"
+    "- requires_implementation: the subject module MUST define the logic described by the object\n"
+    "\n"
+    "Scoping:\n"
+    "- Use wildcard subjects (e.g., app.services.*) when the ADR constrains an entire namespace\n"
+    "- Use specific FQN subjects when the ADR constrains a single module\n"
+    "- Never use bare * as a subject\n"
+    "- Objects must always be specific FQNs, never wildcards\n"
+    "\n"
+    "Each constraint has: subject, predicate, object, justification (the natural language reason from the ADR text)."
 )
 
 FEW_SHOT_EXAMPLES = [
@@ -96,20 +107,42 @@ FEW_SHOT_EXAMPLES = [
         ],
     ),
     lx.data.ExampleData(
-        text="The users.views module is forbidden from importing "
-             "users.models directly; all access must go through the service layer.",
+        text="All services in the app.services namespace must "
+             "import app.common.logging for structured log output.",
         extractions=[
             lx.data.Extraction(
                 extraction_class="adr_constraint",
-                extraction_text="users.views",
+                extraction_text="app.common.logging",
                 attributes={
-                    "subject": "users.views",
-                    "predicate": "prohibits_dependency",
-                    "object": "users.models",
-                    "justification": "Views are forbidden from importing models directly.",
+                    "subject": "app.services.*",
+                    "predicate": "requires_dependency",
+                    "object": "app.common.logging",
+                    "justification": "All services must import the structured logging module.",
                 },
             )
         ],
+    ),
+    lx.data.ExampleData(
+        text="No module outside app.auth shall implement "
+             "authentication logic. Only app.auth.middleware is permitted "
+             "to define authentication behavior.",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="adr_constraint",
+                extraction_text="app.auth.middleware",
+                attributes={
+                    "subject": "app.auth.*",
+                    "predicate": "prohibits_implementation",
+                    "object": "app.auth.middleware",
+                    "justification": "Only app.auth.middleware may define authentication behavior.",
+                },
+            )
+        ],
+    ),
+    lx.data.ExampleData(
+        text="We will use Black for code formatting and isort for "
+             "import sorting. Line length is set to 88 characters.",
+        extractions=[],
     ),
 ]
 
@@ -179,6 +212,7 @@ class ADRExtractor:
                 prompt_description=PROMPT_DESCRIPTION,
                 examples=FEW_SHOT_EXAMPLES,
                 config=model_config,
+                prompt_validation_level=lx.prompt_validation.PromptValidationLevel.OFF,
             )
             if result.extractions is not None:
                 raw_response = {

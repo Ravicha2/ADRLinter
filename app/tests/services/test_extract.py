@@ -301,6 +301,84 @@ class TestExtractConstraintsHappyPath:
         assert "prompt_description" in call_kwargs.kwargs or len(call_kwargs.args) > 0
 
 
+# ===========================================================================
+# 2b. PROMPT_DESCRIPTION content
+# ===========================================================================
+
+
+class TestPromptDescription:
+    """PROMPT_DESCRIPTION defines all four predicates and scoping rules."""
+
+    def test_contains_all_four_predicates(self) -> None:
+        from services.adr_extract import PROMPT_DESCRIPTION
+
+        assert "prohibits_dependency" in PROMPT_DESCRIPTION
+        assert "requires_implementation" in PROMPT_DESCRIPTION
+        assert "requires_dependency" in PROMPT_DESCRIPTION
+        assert "prohibits_implementation" in PROMPT_DESCRIPTION
+
+    def test_defines_dependency_boundary(self) -> None:
+        from services.adr_extract import PROMPT_DESCRIPTION
+
+        assert "import" in PROMPT_DESCRIPTION.lower() or "call" in PROMPT_DESCRIPTION.lower()
+
+    def test_defines_implementation_boundary(self) -> None:
+        from services.adr_extract import PROMPT_DESCRIPTION
+
+        assert "define" in PROMPT_DESCRIPTION.lower() or "internal" in PROMPT_DESCRIPTION.lower()
+
+    def test_wildcard_scoping_rule(self) -> None:
+        from services.adr_extract import PROMPT_DESCRIPTION
+
+        assert "wildcard" in PROMPT_DESCRIPTION.lower() or "namespace" in PROMPT_DESCRIPTION.lower()
+
+    def test_bare_wildcard_prohibited(self) -> None:
+        from services.adr_extract import PROMPT_DESCRIPTION
+
+        assert "never" in PROMPT_DESCRIPTION.lower() or "bare" in PROMPT_DESCRIPTION.lower()
+
+    def test_objects_must_be_fqns(self) -> None:
+        from services.adr_extract import PROMPT_DESCRIPTION
+
+        assert "FQN" in PROMPT_DESCRIPTION
+
+
+# ===========================================================================
+# 2c. FEW_SHOT_EXAMPLES content
+# ===========================================================================
+
+
+class TestFewShotExamples:
+    """FEW_SHOT_EXAMPLES covers all four predicates with one example each plus a negative."""
+
+    def test_example_count(self) -> None:
+        from services.adr_extract import FEW_SHOT_EXAMPLES
+
+        assert len(FEW_SHOT_EXAMPLES) == 5
+
+    def test_one_example_per_predicate(self) -> None:
+        from services.adr_extract import FEW_SHOT_EXAMPLES
+
+        predicates = set()
+        for example in FEW_SHOT_EXAMPLES:
+            for ext in example.extractions:
+                pred = ext.attributes.get("predicate", "")
+                predicates.add(pred)
+        assert predicates == {
+            "prohibits_dependency",
+            "requires_implementation",
+            "requires_dependency",
+            "prohibits_implementation",
+        }
+
+    def test_negative_example_exists(self) -> None:
+        from services.adr_extract import FEW_SHOT_EXAMPLES
+
+        negative = [ex for ex in FEW_SHOT_EXAMPLES if len(ex.extractions) == 0]
+        assert len(negative) == 1
+
+
+
 class TestExtractConstraintsConfigRouting:
     """ADRExtractor uses factory.ModelConfig with explicit provider for OpenRouter."""
 

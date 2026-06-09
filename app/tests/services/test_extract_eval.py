@@ -99,6 +99,30 @@ We will use Black for code formatting and isort for import sorting.
 Line length is set to 88 characters. No architectural constraints apply.
 """
 
+ADR_REQUIRED_DEP = """\
+# ADR-007: Centralized Logging
+
+## Status: Accepted
+
+## Decision
+
+All services in the app.services namespace must import app.common.logging
+for structured log output. No service shall use print() or the bare logging
+module directly.
+"""
+
+ADR_PROHIBITED_IMPL = """\
+# ADR-008: Authentication Centralization
+
+## Status: Accepted
+
+## Decision
+
+No module outside app.auth shall implement authentication logic.
+Only app.auth.middleware is permitted to define authentication behavior.
+Other modules must call app.auth.middleware to perform authentication checks.
+"""
+
 
 # ---------------------------------------------------------------------------
 # Judge prompt
@@ -111,7 +135,13 @@ Given an original ADR document and a list of extracted constraints, score each
 constraint on three dimensions:
 
 1. **Subject correctness**: Is the subject FQN correct and appropriately scoped?
-2. **Predicate correctness**: Is the predicate (e.g., prohibits_dependency or requires_implementation) correct for this constraint?
+2. **Predicate correctness**: Is the predicate correct for this constraint?
+   - prohibits_dependency: the subject must NOT import or call the object
+   - requires_dependency: the subject MUST import or call the object
+   - prohibits_implementation: the subject must NOT define the logic described by the object
+   - requires_implementation: the subject MUST define the logic described by the object
+   - Dependency = subject's imports/calls are constrained
+   - Implementation = subject's internal code (what it defines) is constrained
 3. **Object correctness**: Is the object FQN correct and appropriately scoped?
 
 For each extracted constraint, you must perform a step-by-step analysis BEFORE scoring.
@@ -210,6 +240,59 @@ class TestExtractNoConstraints:
     def test_no_errors(self, result) -> None:
         """No errors for a valid ADR with no constraints."""
         assert len(result.errors) == 0
+
+
+class TestExtractRequiredDependency:
+    """Extract requires_dependency constraints from ADR-007."""
+
+    @pytest.fixture
+    def result(self, extractor):
+        return _extract_cached(
+            extractor, ADR_REQUIRED_DEP, "ADR-007",
+            "docs/adr/ADR-007-centralized-logging.md",
+        )
+
+    def test_extracts_at_least_one_constraint(self, result) -> None:
+        """ADR-007 should produce at least one constraint."""
+        assert len(result.constraints) >= 1
+
+    def test_requires_dependency_found(self, result) -> None:
+        """At least one constraint should be requires_dependency."""
+        predicates = {c.predicate.value for c in result.constraints}
+        assert "requires_dependency" in predicates
+
+
+class TestExtractProhibitsImplementation:
+    """Extract prohibits_implementation constraints from ADR-008."""
+
+    @pytest.fixture
+    def result(self, extractor):
+        return _extract_cached(
+            extractor, ADR_PROHIBITED_IMPL, "ADR-008",
+            "docs/adr/ADR-008-auth-centralization.md",
+        )
+
+    def test_extracts_at_least_one_constraint(self, result) -> None:
+        """ADR-008 should produce at least one constraint."""
+        assert len(result.constraints) >= 1
+
+    def test_prohibits_implementation_found(self, result) -> None:
+        """At least one constraint should be prohibits_implementation."""
+        predicates = {c.predicate.value for c in result.constraints}
+        assert "prohibits_implementation" in predicates
+
+
+class TestJudgePrompt:
+    """JUDGE_PROMPT references all four predicates with definitions."""
+
+    def test_judge_prompt_contains_all_predicates(self) -> None:
+        assert "prohibits_dependency" in JUDGE_PROMPT
+        assert "requires_implementation" in JUDGE_PROMPT
+        assert "requires_dependency" in JUDGE_PROMPT
+        assert "prohibits_implementation" in JUDGE_PROMPT
+
+    def test_judge_prompt_defines_dependency_boundary(self) -> None:
+        assert "import" in JUDGE_PROMPT.lower() or "call" in JUDGE_PROMPT.lower()
 
 
 class TestJudgeEvaluation:

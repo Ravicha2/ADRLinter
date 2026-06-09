@@ -85,6 +85,8 @@ class DiffResult:
 class PredicateType(Enum):
     PROHIBITS_DEPENDENCY = "prohibits_dependency"
     REQUIRES_IMPLEMENTATION = "requires_implementation"
+    REQUIRES_DEPENDENCY = "requires_dependency"
+    PROHIBITS_IMPLEMENTATION = "prohibits_implementation"
 
 
 @dataclass
