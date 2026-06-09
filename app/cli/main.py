@@ -6,8 +6,7 @@ from rich.console import Console
 from rich.table import Table
 
 from cli.config import load_config
-from services.diff_processor import process_diff
-from services.git_adapter import GitAdapter
+from services.cpt import GitAdapter, process_diff
 from services.models import DiffResult
 
 console = Console()

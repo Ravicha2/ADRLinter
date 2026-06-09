@@ -6,7 +6,7 @@ from pathlib import Path
 
 import yaml
 
-from services._extract_config import LangExtractConfig
+from services.extract import LangExtractConfig
 
 
 @dataclass
