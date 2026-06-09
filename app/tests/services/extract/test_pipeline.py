@@ -148,7 +148,7 @@ class TestIsAdrFile:
 class TestExtractChangedAdrs:
     """extract_changed_adrs processes only ADR files changed in a commit."""
 
-    @patch("services.extract.ADRExtractor")
+    @patch("services.extract.pipeline.ADRExtractor")
     def test_extracts_from_adr_files_in_diff(
         self, mock_extractor_cls: MagicMock
     ) -> None:
@@ -183,7 +183,7 @@ class TestExtractChangedAdrs:
         assert len(results) == 1
         assert results[0].constraints[0].adr_id == "ADR-001"
 
-    @patch("services.extract.ADRExtractor")
+    @patch("services.extract.pipeline.ADRExtractor")
     def test_no_adr_files_returns_empty(self, mock_extractor_cls: MagicMock) -> None:
         """A diff with no ADR files returns an empty list."""
         from services.extract import LangExtractConfig, extract_changed_adrs
@@ -207,7 +207,7 @@ class TestExtractChangedAdrs:
 
         assert results == []
 
-    @patch("services.extract.ADRExtractor")
+    @patch("services.extract.pipeline.ADRExtractor")
     def test_multiple_adr_files_in_diff(
         self, mock_extractor_cls: MagicMock
     ) -> None:
@@ -261,7 +261,7 @@ class TestExtractChangedAdrs:
 class TestExtractAllAdrs:
     """extract_all_adrs processes all ADR files in a directory."""
 
-    @patch("services.extract.ADRExtractor")
+    @patch("services.extract.pipeline.ADRExtractor")
     def test_extracts_all_adr_files(self, mock_extractor_cls: MagicMock) -> None:
         """All ADR-*.md files in adr_dir are extracted."""
         from services.extract import LangExtractConfig, extract_all_adrs
@@ -281,7 +281,7 @@ class TestExtractAllAdrs:
 
         assert len(results) >= 1
 
-    @patch("services.extract.ADRExtractor")
+    @patch("services.extract.pipeline.ADRExtractor")
     def test_empty_adr_dir_returns_empty(self, mock_extractor_cls: MagicMock) -> None:
         """An adr_dir with no ADR files returns empty results."""
         from services.extract import LangExtractConfig, extract_all_adrs
