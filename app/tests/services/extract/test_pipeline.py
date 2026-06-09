@@ -91,42 +91,42 @@ class TestIsAdrFile:
 
     def test_adr_file_under_adr_dir(self) -> None:
         """A .md file under the configured adr_dir is an ADR."""
-        from services.adr_extract import is_adr_file
+        from services.extract import is_adr_file
 
         change = FileChange(path="docs/adr/ADR-001-mysql-storage.md", status="modified")
         assert is_adr_file(change, adr_dir="docs/adr") is True
 
     def test_adr_file_in_nested_subdir(self) -> None:
         """An ADR file in a nested directory under adr_dir is detected."""
-        from services.adr_extract import is_adr_file
+        from services.extract import is_adr_file
 
         change = FileChange(path="docs/adr/decisions/ADR-005.md", status="added")
         assert is_adr_file(change, adr_dir="docs/adr") is True
 
     def test_non_adr_markdown(self) -> None:
         """A .md file outside adr_dir is not an ADR."""
-        from services.adr_extract import is_adr_file
+        from services.extract import is_adr_file
 
         change = FileChange(path="README.md", status="modified")
         assert is_adr_file(change, adr_dir="docs/adr") is False
 
     def test_python_file_not_adr(self) -> None:
         """A .py file is never an ADR regardless of directory."""
-        from services.adr_extract import is_adr_file
+        from services.extract import is_adr_file
 
         change = FileChange(path="docs/adr/ADR-001.py", status="modified")
         assert is_adr_file(change, adr_dir="docs/adr") is False
 
     def test_adr_file_in_different_dir(self) -> None:
         """A .md file not under the configured adr_dir is not an ADR."""
-        from services.adr_extract import is_adr_file
+        from services.extract import is_adr_file
 
         change = FileChange(path="other/ADR-001.md", status="modified")
         assert is_adr_file(change, adr_dir="docs/adr") is False
 
     def test_adr_dir_as_root_prefix(self) -> None:
         """Files starting with the adr_dir path are detected as ADRs."""
-        from services.adr_extract import is_adr_file
+        from services.extract import is_adr_file
 
         # adr_dir is a prefix, so "docs/adr/arch/ADR-010.md" matches
         change = FileChange(path="docs/adr/arch/ADR-010.md", status="added")
@@ -134,7 +134,7 @@ class TestIsAdrFile:
 
     def test_wrong_prefix_not_matched(self) -> None:
         """A file like 'docs/adraft/foo.md' must not match adr_dir='docs/adr'."""
-        from services.adr_extract import is_adr_file
+        from services.extract import is_adr_file
 
         change = FileChange(path="docs/adraft/foo.md", status="modified")
         assert is_adr_file(change, adr_dir="docs/adr") is False
@@ -148,12 +148,12 @@ class TestIsAdrFile:
 class TestExtractChangedAdrs:
     """extract_changed_adrs processes only ADR files changed in a commit."""
 
-    @patch("services.adr_extract.ADRExtractor")
+    @patch("services.extract.ADRExtractor")
     def test_extracts_from_adr_files_in_diff(
         self, mock_extractor_cls: MagicMock
     ) -> None:
         """Only .md files under adr_dir in the diff are extracted."""
-        from services.adr_extract import LangExtractConfig, extract_changed_adrs
+        from services.extract import LangExtractConfig, extract_changed_adrs
 
         mock_extractor = MagicMock()
         mock_extractor.extract_constraints.return_value = ExtractionResult(
@@ -183,10 +183,10 @@ class TestExtractChangedAdrs:
         assert len(results) == 1
         assert results[0].constraints[0].adr_id == "ADR-001"
 
-    @patch("services.adr_extract.ADRExtractor")
+    @patch("services.extract.ADRExtractor")
     def test_no_adr_files_returns_empty(self, mock_extractor_cls: MagicMock) -> None:
         """A diff with no ADR files returns an empty list."""
-        from services.adr_extract import LangExtractConfig, extract_changed_adrs
+        from services.extract import LangExtractConfig, extract_changed_adrs
 
         diff = CommitDiff(
             commit_sha="abc123",
@@ -207,12 +207,12 @@ class TestExtractChangedAdrs:
 
         assert results == []
 
-    @patch("services.adr_extract.ADRExtractor")
+    @patch("services.extract.ADRExtractor")
     def test_multiple_adr_files_in_diff(
         self, mock_extractor_cls: MagicMock
     ) -> None:
         """Multiple ADR files in the diff are all extracted."""
-        from services.adr_extract import LangExtractConfig, extract_changed_adrs
+        from services.extract import LangExtractConfig, extract_changed_adrs
 
         mock_extractor = MagicMock()
         mock_extractor.extract_constraints.side_effect = [
@@ -261,10 +261,10 @@ class TestExtractChangedAdrs:
 class TestExtractAllAdrs:
     """extract_all_adrs processes all ADR files in a directory."""
 
-    @patch("services.adr_extract.ADRExtractor")
+    @patch("services.extract.ADRExtractor")
     def test_extracts_all_adr_files(self, mock_extractor_cls: MagicMock) -> None:
         """All ADR-*.md files in adr_dir are extracted."""
-        from services.adr_extract import LangExtractConfig, extract_all_adrs
+        from services.extract import LangExtractConfig, extract_all_adrs
 
         mock_extractor = MagicMock()
         mock_extractor.extract_from_directory.return_value = [
@@ -281,10 +281,10 @@ class TestExtractAllAdrs:
 
         assert len(results) >= 1
 
-    @patch("services.adr_extract.ADRExtractor")
+    @patch("services.extract.ADRExtractor")
     def test_empty_adr_dir_returns_empty(self, mock_extractor_cls: MagicMock) -> None:
         """An adr_dir with no ADR files returns empty results."""
-        from services.adr_extract import LangExtractConfig, extract_all_adrs
+        from services.extract import LangExtractConfig, extract_all_adrs
 
         mock_extractor = MagicMock()
         mock_extractor.extract_from_directory.return_value = []
@@ -313,7 +313,7 @@ class TestWriteConstraints:
 
     def test_writes_valid_constraints(self, tmp_path: Path) -> None:
         """ConstraintEdges are serialized to JSON with all fields."""
-        from services.adr_extract import write_constraints
+        from services.extract import write_constraints
 
         results = [
             ExtractionResult(
@@ -341,7 +341,7 @@ class TestWriteConstraints:
 
     def test_writes_multiple_results(self, tmp_path: Path) -> None:
         """Multiple ExtractionResults from different ADRs are all written."""
-        from services.adr_extract import write_constraints
+        from services.extract import write_constraints
 
         results = [
             ExtractionResult(
@@ -372,7 +372,7 @@ class TestWriteConstraints:
 
     def test_includes_errors_in_output(self, tmp_path: Path) -> None:
         """ExtractionErrors are included in the JSON output for traceability."""
-        from services.adr_extract import write_constraints
+        from services.extract import write_constraints
 
         results = [
             ExtractionResult(
@@ -396,7 +396,7 @@ class TestWriteConstraints:
 
     def test_creates_parent_directories(self, tmp_path: Path) -> None:
         """write_constraints creates the output directory if it doesn't exist."""
-        from services.adr_extract import write_constraints
+        from services.extract import write_constraints
 
         results = [
             ExtractionResult(constraints=[_make_constraint()], errors=[]),
@@ -412,7 +412,7 @@ class TestWriteConstraints:
 
     def test_empty_results_writes_empty_object(self, tmp_path: Path) -> None:
         """An empty list of results writes a JSON object with empty arrays."""
-        from services.adr_extract import write_constraints
+        from services.extract import write_constraints
 
         output_path = tmp_path / "seeds" / "flask" / "constraints.json"
         write_constraints([], output_path)

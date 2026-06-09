@@ -12,7 +12,7 @@ import pytest
 
 from services.fqn import FQN
 from services.models import Edge, FQNKind, FQNNode
-from services.treesitter import parse_file
+from services.adg import parse_file
 
 
 # ---------------------------------------------------------------------------
