@@ -23,14 +23,14 @@ class GitAdapter:
                 commit_sha = self._git(repo_path, "rev-parse", commit_sha)
             except subprocess.CalledProcessError as e:
                 raise ValueError(f"Invalid commit SHA: {commit_sha}") from e
-        
+
         # 2. Find parent SHA (None for initial commit)
         parent_sha: str | None
-        try: 
+        try:
             parent_sha = self._git(repo_path, "rev-parse", f"{commit_sha}^") # resolve input into commit hash, ^ = parent of
         except subprocess.CalledProcessError:
             parent_sha = None
-        
+
         # 3. get changed files with status
         changed_files = self._get_changed_files(repo_path, commit_sha, parent_sha)
 
@@ -59,13 +59,13 @@ class GitAdapter:
             check=True
         )
         return result.stdout.strip()
-    
+
     @staticmethod
     def _verify_repo(repo_path: Path) -> None:
         git_dir = repo_path / ".git"
         if not git_dir.exists():
             raise ValueError(f"Not a git repository: {repo_path}")
-    
+
     def _get_changed_files(
             self, repo_path: Path, commit_sha: str, parent_sha: str | None
     ) -> list[FileChange]:
@@ -77,14 +77,14 @@ class GitAdapter:
                 for p in paths.splitlines()
                 if p
             ]
-        
+
         STATUS_MAP = {
             "A": "added",
             "M": "modified",
             "D": "deleted",
             "R": "renamed"
         }
-        
+
         raw = self._git(
             repo_path, "diff", "--name-status", "-M", f"{parent_sha}..{commit_sha}"
         )
@@ -108,7 +108,7 @@ class GitAdapter:
             elif status == "deleted":
                 changes.append(FileChange(path=parts[1], status="deleted"))
         return changes
-    
+
     def _read_contents(
             self,
             repo_path: Path,
@@ -125,7 +125,7 @@ class GitAdapter:
                 path = file_changed.old_path
             else:
                 path = file_changed.path
-            
+
             try:
                 result = subprocess.run(
                     ["git", "show", f"{sha}:{path}"],

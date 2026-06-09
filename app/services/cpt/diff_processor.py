@@ -2,7 +2,7 @@
 
 from services.fqn import FQN
 from services.models import ChangedFQN, CommitDiff, DiffResult, FQNKind
-from services.treesitter import parse_file
+from services.adg import parse_file
 
 def process_diff(commit_diff: CommitDiff) -> DiffResult:
     """Process a CommitDiff and return changed FQNs and file changes"""
@@ -84,7 +84,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                     changed_fqns.append(
                         make_changed_fqn(node, "added", path, module_fqn)
                     )
-         
+
     return DiffResult(
         commit_sha=commit_diff.commit_sha,
         parent_sha=commit_diff.parent_sha,
