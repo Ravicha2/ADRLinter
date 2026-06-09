@@ -9,6 +9,9 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import time
+from datetime import datetime, timezone
+
 import langextract as lx
 
 from services.models import (
@@ -111,6 +114,23 @@ FEW_SHOT_EXAMPLES = [
 ]
 
 
+@dataclass
+class ADRLogEntry:
+    timestamp: str
+    adr_id: str
+    adr_path: str
+    model_id: str
+    input_text: str
+    prompt_instruction: str
+    raw_response: dict | None
+    constraint_count: int
+    parsed_predicate_count: int
+    error_count: int
+    error_types: list[str]
+    extract_error: str | None
+    duration_ms: float
+
+
 # ADR file detection
 _ADR_ID_RE = re.compile(r"^(ADR-\d+)", re.IGNORECASE)
 
@@ -133,12 +153,17 @@ def _parse_adr_id(path: str) -> str:
 # ADRExtractor
 
 class ADRExtractor:
-    def __init__(self, config: LangExtractConfig) -> None:
+    def __init__(self, config: LangExtractConfig, log_path: Path | None = None) -> None:
         self.config = config
+        self.log_path = log_path
 
     def extract_constraints(
         self, adr_text: str, adr_id: str, adr_path: str
     ) -> ExtractionResult:
+        start = time.perf_counter()
+        extract_error: str | None = None
+        raw_response: dict | None = None
+
         try:
             model_config = lx.factory.ModelConfig(
                 model_id=self.config.model_id,
@@ -155,17 +180,36 @@ class ADRExtractor:
                 examples=FEW_SHOT_EXAMPLES,
                 config=model_config,
             )
+            if result.extractions is not None:
+                raw_response = {
+                    "extractions": [
+                        {
+                            "extraction_text": e.extraction_text,
+                            "extraction_class": e.extraction_class,
+                            "attributes": e.attributes,
+                            "char_interval": (
+                                (e.char_interval.start_pos, e.char_interval.end_pos)
+                                if e.char_interval else None
+                            ),
+                        }
+                        for e in result.extractions
+                    ]
+                }
         except Exception as exc:
+            extract_error = str(exc)
             return ExtractionResult(
                 errors=[ExtractionError(
-                    message=str(exc),
+                    message=extract_error,
                     adr_path=adr_path,
                     error_type="api_failure",
                 )]
             )
+        finally:
+            duration_ms = (time.perf_counter() - start) * 1000
 
         constraints: list[ConstraintEdge] = []
         errors: list[ExtractionError] = []
+        parsed_predicate_count = 0
 
         for ext in result.extractions or []:
             if ext.char_interval is None:
@@ -180,6 +224,7 @@ class ADRExtractor:
             pred_str = attrs.get("predicate", "")
             try:
                 predicate = PredicateType(pred_str)
+                parsed_predicate_count += 1
             except ValueError:
                 errors.append(ExtractionError(
                     message=f"Invalid predicate '{pred_str}' in: {ext.extraction_text}",
@@ -206,7 +251,33 @@ class ADRExtractor:
                     error_type="malformed_extraction",
                 ))
 
+        if self.log_path is not None:
+            entry = ADRLogEntry(
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                adr_id=adr_id,
+                adr_path=adr_path,
+                model_id=self.config.model_id or "unknown",
+                input_text=adr_text,
+                prompt_instruction=PROMPT_DESCRIPTION,
+                raw_response=raw_response,
+                constraint_count=len(constraints),
+                parsed_predicate_count=parsed_predicate_count,
+                error_count=len(errors),
+                error_types=[e.error_type for e in errors],
+                extract_error=extract_error,
+                duration_ms=duration_ms,
+            )
+            self._write_log(entry)
+
         return ExtractionResult(constraints=constraints, errors=errors)
+
+    def _write_log(self, entry: ADRLogEntry) -> None:
+        try:
+            self.log_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.log_path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry.__dict__, default=str) + "\n")
+        except Exception:
+            pass
 
     def extract_from_file(self, adr_path: Path) -> ExtractionResult:
         try:
@@ -241,10 +312,10 @@ class ADRExtractor:
 # Orchestration: commit pipeline and seed build
 
 def extract_changed_adrs(
-    diff: CommitDiff, adr_dir: str, config: LangExtractConfig
+    diff: CommitDiff, adr_dir: str, config: LangExtractConfig, log_path: Path | None = None
 ) -> list[ExtractionResult]:
     """Extract constraints from ADR files that changed (incremental pipeline)."""
-    extractor = ADRExtractor(config)
+    extractor = ADRExtractor(config, log_path=log_path)
     results: list[ExtractionResult] = []
     for change in diff.changed_files:
         if is_adr_file(change, adr_dir):
@@ -265,10 +336,10 @@ def extract_changed_adrs(
 
 
 def extract_all_adrs(
-    repo_path: Path, adr_dir: str, config: LangExtractConfig
+    repo_path: Path, adr_dir: str, config: LangExtractConfig, log_path: Path | None = None
 ) -> list[ExtractionResult]:
     """Extract constraints from all ADR files (seed build)."""
-    extractor = ADRExtractor(config)
+    extractor = ADRExtractor(config, log_path=log_path)
     return extractor.extract_from_directory(repo_path / adr_dir)
 
 

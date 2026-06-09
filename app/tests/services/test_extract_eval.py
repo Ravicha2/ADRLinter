@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import os
 import json
+from pathlib import Path
+
 import requests
 import pytest
 from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -26,6 +28,19 @@ from services.models import PredicateType
 
 HAS_API_KEY = bool(os.environ.get("OPENROUTER_API_KEY"))
 API_KEY = os.getenv("OPENROUTER_API_KEY")
+
+# Module-level cache to avoid redundant LLM API calls across test classes.
+# Keyed by adr_id so the same ADR is only extracted once per session.
+_extraction_cache: dict[str, object] = {}
+
+
+def _extract_cached(extractor, adr_text: str, adr_id: str, adr_path: str):
+    """Return cached extraction result, calling the API only on first access."""
+    if adr_id not in _extraction_cache:
+        _extraction_cache[adr_id] = extractor.extract_constraints(
+            adr_text=adr_text, adr_id=adr_id, adr_path=adr_path,
+        )
+    return _extraction_cache[adr_id]
 
 pytestmark = [
     pytest.mark.integration,
@@ -40,7 +55,7 @@ def extractor():
     from services.adr_extract import ADRExtractor, LangExtractConfig
 
     config = LangExtractConfig()
-    return ADRExtractor(config=config)
+    return ADRExtractor(config=config, log_path=Path("logs/adr_extract.jsonl"))
 
 
 # ---------------------------------------------------------------------------
@@ -96,23 +111,34 @@ Given an original ADR document and a list of extracted constraints, score each
 constraint on three dimensions:
 
 1. **Subject correctness**: Is the subject FQN correct and appropriately scoped?
-2. **Predicate correctness**: Is the predicate (prohibits_dependency or
-   requires_implementation) correct for this constraint?
+2. **Predicate correctness**: Is the predicate (e.g., prohibits_dependency or requires_implementation) correct for this constraint?
 3. **Object correctness**: Is the object FQN correct and appropriately scoped?
 
-For each constraint, respond with:
-- subject_correct: true/false
-- predicate_correct: true/false
-- object_correct: true/false
-- overall: "correct" / "partially_correct" / "incorrect"
+For each extracted constraint, you must perform a step-by-step analysis BEFORE scoring.
+In your `analysis` field, explicitly justify:
+- Why the Subject FQN matches or fails the expected scope.
+- Why the Predicate matches or fails the architectural intent.
+- Why the Object FQN matches or fails the expected scope.
 
-Also provide:
-- total_expected: How many constraints should have been extracted from this ADR?
-- total_extracted: How many were actually extracted?
-- precision: Of the extracted constraints, how many are correct? (0.0 to 1.0)
-- recall: Of the expected constraints, how many were found? (0.0 to 1.0)
+Respond STRICTLY with JSON format using the exact schema below. Do not include markdown formatting, backticks, or preamble.
 
-Respond in JSON format.
+{
+  "evaluation": [
+    {
+      "constraint_index": <int>,
+      "analysis": "<step-by-step reasoning for the Subject, Predicate, and Object>",
+      "subject_correct": <boolean>,
+      "predicate_correct": <boolean>,
+      "object_correct": <boolean>,
+      "overall": "<'correct' | 'partially_correct' | 'incorrect'>"
+    }
+  ],
+  "overall_feedback": "<brief summary of common extraction failures or scoping issues>",
+  "total_expected": <int>,
+  "total_extracted": <int>,
+  "precision": <float>,
+  "recall": <float>
+}
 """
 
 
@@ -126,20 +152,10 @@ class TestExtractForbiddenDependency:
 
     @pytest.fixture
     def result(self, extractor):
-        """Extract constraints from ADR-001 and return the result."""
-        return extractor.extract_constraints(
-            adr_text=ADR_FORBIDDEN_DEP,
-            adr_id="ADR-001",
-            adr_path="docs/adr/ADR-001-mysql-storage.md",
-        )
-
-    @pytest.fixture
-    def result_no_skip(self, extractor):
-        """Force extraction even without API key will skip at fixture level."""
-        return extractor.extract_constraints(
-            adr_text=ADR_FORBIDDEN_DEP,
-            adr_id="ADR-001",
-            adr_path="docs/adr/ADR-001-mysql-storage.md",
+        """Extract constraints from ADR-001 (cached across tests)."""
+        return _extract_cached(
+            extractor, ADR_FORBIDDEN_DEP, "ADR-001",
+            "docs/adr/ADR-001-mysql-storage.md",
         )
 
     def test_extracts_at_least_one_constraint(self, result) -> None:
@@ -162,10 +178,9 @@ class TestExtractRequiredImplementation:
 
     @pytest.fixture
     def result(self, extractor):
-        return extractor.extract_constraints(
-            adr_text=ADR_REQUIRED_IMPL,
-            adr_id="ADR-003",
-            adr_path="docs/adr/ADR-003-auth-middleware.md",
+        return _extract_cached(
+            extractor, ADR_REQUIRED_IMPL, "ADR-003",
+            "docs/adr/ADR-003-auth-middleware.md",
         )
 
     def test_extracts_at_least_one_constraint(self, result) -> None:
@@ -183,10 +198,9 @@ class TestExtractNoConstraints:
 
     @pytest.fixture
     def result(self, extractor):
-        return extractor.extract_constraints(
-            adr_text=ADR_NO_CONSTRAINTS,
-            adr_id="ADR-006",
-            adr_path="docs/adr/ADR-006-code-style.md",
+        return _extract_cached(
+            extractor, ADR_NO_CONSTRAINTS, "ADR-006",
+            "docs/adr/ADR-006-code-style.md",
         )
 
     def test_no_constraints_found(self, result) -> None:
@@ -203,17 +217,11 @@ class TestJudgeEvaluation:
 
     @pytest.fixture
     def adr001_extraction(self, extractor):
-        return extractor.extract_constraints(
-            adr_text=ADR_FORBIDDEN_DEP,
-            adr_id="ADR-001",
-            adr_path="docs/adr/ADR-001-mysql-storage.md",
+        """Reuse cached ADR-001 extraction instead of another API call."""
+        return _extract_cached(
+            extractor, ADR_FORBIDDEN_DEP, "ADR-001",
+            "docs/adr/ADR-001-mysql-storage.md",
         )
-
-    @pytest.fixture
-    def judge_extractor(self):
-        """Separate extractor instance used only for judge calls."""
-        config = LangExtractConfig()
-        return ADRExtractor(config=config)
 
     def _serialize_constraints(self, constraints: list) -> str:
         return json.dumps(
@@ -230,7 +238,7 @@ class TestJudgeEvaluation:
             indent=2,
         )
 
-    def _call_judge(self, judge_extractor, adr_text: str, constraints_json: str) -> dict:
+    def _call_judge(self, adr_text: str, constraints_json: str) -> dict:
         """Ask the LLM to score an extraction. Returns parsed JSON scores."""
         judge_prompt = (
             f"{JUDGE_PROMPT}\n\n"
@@ -278,7 +286,7 @@ class TestJudgeEvaluation:
         clean = clean.strip()
         return json.loads(clean)
 
-    def test_judge_scores_above_threshold(self, adr001_extraction, judge_extractor) -> None:
+    def test_judge_scores_above_threshold(self, adr001_extraction) -> None:
         if adr001_extraction.errors:
             api_errors = [e for e in adr001_extraction.errors if e.error_type == "api_failure"]
             if api_errors:
@@ -294,7 +302,7 @@ class TestJudgeEvaluation:
         constraints_json = self._serialize_constraints(adr001_extraction.constraints)
 
         try:
-            scores = self._call_judge(judge_extractor, ADR_FORBIDDEN_DEP, constraints_json)
+            scores = self._call_judge(ADR_FORBIDDEN_DEP, constraints_json)
         except Exception as e:
             pytest.skip(f"Judge call failed: {e}")
 
