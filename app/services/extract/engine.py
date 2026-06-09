@@ -11,10 +11,10 @@ from pathlib import Path
 
 import langextract as lx
 
-from services._extract_config import LangExtractConfig
-from services._extract_io import parse_adr_id
-from services._extract_logging import ADRLogEntry, write_log
-from services._extract_prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
+from services.extract.config import LangExtractConfig
+from services.extract.io import parse_adr_id
+from services.extract.logging import ADRLogEntry, write_log
+from services.extract.prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
 from services.models import (
     ConstraintEdge,
     ExtractionError,
