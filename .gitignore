@@ -17,6 +17,9 @@ neo4j_data/
 # Docker
 *.pid
 
+# Logs
+logs/
+
 # agent doc
 .claude
 CLAUDE.md

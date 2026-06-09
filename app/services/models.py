@@ -79,3 +79,52 @@ class DiffResult:
     parent_sha: str | None = None
     changed_files: list[FileChange] = field(default_factory=list)  # for ADG Update
     changed_fqns: list[ChangedFQN] = field(default_factory=list)  # for CPT
+
+
+# ADR Constraint Extraction data models
+class PredicateType(Enum):
+    PROHIBITS_DEPENDENCY = "prohibits_dependency"
+    REQUIRES_IMPLEMENTATION = "requires_implementation"
+    REQUIRES_DEPENDENCY = "requires_dependency"
+    PROHIBITS_IMPLEMENTATION = "prohibits_implementation"
+
+
+@dataclass
+class ConstraintEdge:
+    subject: str
+    predicate: PredicateType
+    object: str
+    justification: str
+    char_interval: tuple[int, int]
+    adr_id: str
+    adr_path: str
+
+    def __post_init__(self) -> None:
+        if not self.subject:
+            raise ValueError("subject must be non-empty")
+        if not self.object:
+            raise ValueError("object must be non-empty")
+        if not self.justification:
+            raise ValueError("justification must be non-empty")
+        if not self.adr_id:
+            raise ValueError("adr_id must be non-empty")
+        if not self.adr_path:
+            raise ValueError("adr_path must be non-empty")
+        start, end = self.char_interval
+        if start < 0:
+            raise ValueError(f"char_interval start must be >= 0, got {start}")
+        if end <= start:
+            raise ValueError(f"char_interval end must be > start, got ({start}, {end})")
+
+
+@dataclass
+class ExtractionError:
+    message: str
+    adr_path: str
+    error_type: str  # "api_failure" | "malformed_extraction" | "parse_failure"
+
+
+@dataclass
+class ExtractionResult:
+    constraints: list[ConstraintEdge] = field(default_factory=list)
+    errors: list[ExtractionError] = field(default_factory=list)

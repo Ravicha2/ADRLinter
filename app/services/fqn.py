@@ -1,8 +1,6 @@
 """FQN: frozen value type for fully qualified names.
 
-Centralizes construction, parsing, and validation that was previously
-scattered across treesitter.py (string concatenation) and diff_processor.py
-(rsplit inversion).  Callers use from_path, from_dotted, and child to build
+Centralizes construction, parsing, and validation. Callers use from_path, from_dotted, and child to build
 FQNs; parent, name, and parts to decompose them.
 """
 
