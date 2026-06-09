@@ -218,7 +218,7 @@ class TestLangExtractConfig:
 class TestExtractConstraintsHappyPath:
     """Extract constraints from ADR text using mocked langextract."""
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_single_constraint(self, mock_extract: MagicMock) -> None:
         """One valid extraction produces one ConstraintEdge."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -242,7 +242,7 @@ class TestExtractConstraintsHappyPath:
         assert result.constraints[0].adr_id == "ADR-001"
         assert result.errors == []
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_multiple_constraints(self, mock_extract: MagicMock) -> None:
         """Multiple extractions produce multiple ConstraintEdges."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -281,7 +281,7 @@ class TestExtractConstraintsHappyPath:
         assert PredicateType.PROHIBITS_DEPENDENCY in predicates
         assert PredicateType.REQUIRES_IMPLEMENTATION in predicates
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_extractions_passed_to_langextract(self, mock_extract: MagicMock) -> None:
         """ADRExtractor passes prompt_description and examples to langextract."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -382,7 +382,7 @@ class TestFewShotExamples:
 class TestExtractConstraintsConfigRouting:
     """ADRExtractor uses factory.ModelConfig with explicit provider for OpenRouter."""
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_config_parameter_uses_factory_model_config(self, mock_extract: MagicMock) -> None:
         """extract_constraints passes config=factory.ModelConfig to lx.extract."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -417,7 +417,7 @@ class TestExtractConstraintsConfigRouting:
         finally:
             del os.environ["TEST_API_KEY"]
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_config_parameter_maps_model_url_to_base_url(self, mock_extract: MagicMock) -> None:
         """model_url is mapped to base_url in provider_kwargs for OpenAI provider."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -444,7 +444,7 @@ class TestExtractConstraintsConfigRouting:
         finally:
             del os.environ["TEST_API_KEY"]
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_no_direct_model_id_or_api_key_in_call(self, mock_extract: MagicMock) -> None:
         """extract_constraints should use config= parameter, not model_id= or api_key= directly."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -479,7 +479,7 @@ class TestExtractConstraintsConfigRouting:
 class TestExtractConstraintsNoResults:
     """Empty or no-constraint ADRs produce empty results, not errors."""
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_adr_with_no_constraints(self, mock_extract: MagicMock) -> None:
         """An ADR with no enforceable constraints returns empty constraints."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -506,7 +506,7 @@ class TestExtractConstraintsNoResults:
 class TestExtractConstraintsMalformed:
     """Malformed extractions are skipped and reported as errors."""
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_missing_char_interval_skipped(self, mock_extract: MagicMock) -> None:
         """Extractions without char_interval are skipped and logged."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -527,7 +527,7 @@ class TestExtractConstraintsMalformed:
         assert len(result.errors) == 1
         assert result.errors[0].error_type == "malformed_extraction"
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_invalid_predicate_skipped(self, mock_extract: MagicMock) -> None:
         """Extractions with invalid predicates are skipped and logged."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -547,7 +547,7 @@ class TestExtractConstraintsMalformed:
         assert len(result.errors) == 1
         assert "predicate" in result.errors[0].message.lower() or result.errors[0].error_type == "parse_failure"
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_mix_of_valid_and_malformed(self, mock_extract: MagicMock) -> None:
         """Valid constraints are kept; malformed ones are reported as errors."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -584,7 +584,7 @@ class TestExtractConstraintsMalformed:
 class TestExtractConstraintsAPIFailure:
     """API failures are captured as ExtractionError, not raised."""
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_api_failure_returns_error(self, mock_extract: MagicMock) -> None:
         """Ollama API failure produces empty constraints with error details."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -604,7 +604,7 @@ class TestExtractConstraintsAPIFailure:
         assert result.errors[0].error_type == "api_failure"
         assert "429" in result.errors[0].message or "rate limit" in result.errors[0].message
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_auth_failure_returns_error(self, mock_extract: MagicMock) -> None:
         """Authentication failure produces an api_failure error."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -631,7 +631,7 @@ class TestExtractConstraintsAPIFailure:
 class TestExtractFromFile:
     """extract_from_file reads an ADR file and extracts constraints."""
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_extracts_from_markdown_file(self, mock_extract: MagicMock, tmp_path: Path) -> None:
         """extract_from_file reads .md file and passes text to extract_constraints."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -651,7 +651,7 @@ class TestExtractFromFile:
         assert len(result.constraints) == 1
         assert mock_extract.called
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_adr_id_parsed_from_filename(self, mock_extract: MagicMock) -> None:
         """_parse_adr_id correctly extracts ADR IDs from various filenames."""
         from services.adr_extract import _parse_adr_id
@@ -674,7 +674,7 @@ class TestExtractFromDirectory:
     """extract_from_directory scans an ADR directory and extracts from all .md files."""
 
     @patch.object(Path, "glob")
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_scans_all_adr_files(self, mock_extract: MagicMock, mock_glob: MagicMock) -> None:
         """extract_from_directory processes all ADR-*.md files in a directory."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
@@ -696,7 +696,7 @@ class TestExtractFromDirectory:
         assert len(results) == 2
         assert mock_extract.call_count == 2
 
-    @patch("services.adr_extract.lx.extract")
+    @patch("services._extract_engine.lx.extract")
     def test_empty_directory_returns_empty(self, mock_extract: MagicMock) -> None:
         """A directory with no ADR-*.md files returns empty results."""
         from services.adr_extract import ADRExtractor, LangExtractConfig
