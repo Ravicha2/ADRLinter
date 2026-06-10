@@ -84,14 +84,6 @@ class ADRExtractor:
         parsed_predicate_count = 0
 
         for ext in result.extractions or []:
-            if ext.char_interval is None:
-                errors.append(ExtractionError(
-                    message=f"Extraction missing char_interval: {ext.extraction_text}",
-                    adr_path=adr_path,
-                    error_type="malformed_extraction",
-                ))
-                continue
-
             attrs = ext.attributes or {}
             pred_str = attrs.get("predicate", "")
             try:
@@ -105,13 +97,17 @@ class ADRExtractor:
                 ))
                 continue
 
+            char_interval = None
+            if ext.char_interval is not None:
+                char_interval = (ext.char_interval.start_pos, ext.char_interval.end_pos)
+
             try:
                 edge = ConstraintEdge(
                     subject=attrs.get("subject", ""),
                     predicate=predicate,
                     object=attrs.get("object", ""),
                     justification=attrs.get("justification", ""),
-                    char_interval=(ext.char_interval.start_pos, ext.char_interval.end_pos),
+                    char_interval=char_interval,
                     adr_id=adr_id,
                     adr_path=adr_path,
                 )

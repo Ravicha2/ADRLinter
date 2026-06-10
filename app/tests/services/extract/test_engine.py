@@ -354,7 +354,7 @@ class TestFewShotExamples:
     def test_example_count(self) -> None:
         from services.extract import FEW_SHOT_EXAMPLES
 
-        assert len(FEW_SHOT_EXAMPLES) == 5
+        assert len(FEW_SHOT_EXAMPLES) == 6
 
     def test_one_example_per_predicate(self) -> None:
         from services.extract import FEW_SHOT_EXAMPLES
@@ -507,8 +507,8 @@ class TestExtractConstraintsMalformed:
     """Malformed extractions are skipped and reported as errors."""
 
     @patch("services.extract.engine.lx.extract")
-    def test_missing_char_interval_skipped(self, mock_extract: MagicMock) -> None:
-        """Extractions without char_interval are skipped and logged."""
+    def test_missing_char_interval_accepted(self, mock_extract: MagicMock) -> None:
+        """Extractions without char_interval are accepted with None interval."""
         from services.extract import ADRExtractor, LangExtractConfig
 
         mock_extract.return_value = _make_langextract_result(
@@ -523,9 +523,9 @@ class TestExtractConstraintsMalformed:
             adr_path="docs/adr/ADR-001-mysql-storage.md",
         )
 
-        assert len(result.constraints) == 0
-        assert len(result.errors) == 1
-        assert result.errors[0].error_type == "malformed_extraction"
+        assert len(result.constraints) == 1
+        assert result.constraints[0].char_interval is None
+        assert len(result.errors) == 0
 
     @patch("services.extract.engine.lx.extract")
     def test_invalid_predicate_skipped(self, mock_extract: MagicMock) -> None:
@@ -572,8 +572,9 @@ class TestExtractConstraintsMalformed:
             adr_path="docs/adr/ADR-001-mysql-storage.md",
         )
 
-        assert len(result.constraints) == 1
-        assert len(result.errors) == 1
+        assert len(result.constraints) == 2
+        assert len(result.errors) == 0
+        assert result.constraints[1].char_interval is None
 
 
 # ===========================================================================

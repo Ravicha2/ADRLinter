@@ -78,16 +78,15 @@ No module outside app.database shall import mysql.connector directly.
 """
 
 ADR_REQUIRED_IMPL = """\
-# ADR-003: Authentication Middleware
+# ADR-003: Rate Limiting
 
 ## Status: Accepted
 
 ## Decision
 
-All API endpoints must implement authentication through the app.auth.middleware
-component. No other module is permitted to implement authentication logic.
-Public endpoints at app.api.public are exempt from authentication requirements
-but must not access user data directly.
+All API endpoints in the app.api namespace must implement rate limiting
+logic internally. Each endpoint shall define its own request throttling
+to prevent abuse. No endpoint may delegate rate limiting to an external service.
 """
 
 ADR_NO_CONSTRAINTS = """\
@@ -146,9 +145,18 @@ constraint on three dimensions:
    - Implementation = subject's internal code (what it defines) is constrained
 3. **Object correctness**: Is the object FQN correct and appropriately scoped?
 
+Specificity pairs — exclusion pattern:
+When an ADR says "no module outside X shall do Y", the correct extraction is TWO constraints:
+  - app.*   <prohibits_*>  <object>   (general prohibition)
+  - X.*     <requires_*>   <object>   (explicit permission for X)
+If you see this pair, treat both constraints as correct. Do NOT penalise app.* for including X.*
+— the pair resolves by specificity at evaluation time. A single constraint using a set-difference
+subject like "app.* except app.database.*" is wrong; the two-constraint pattern is the correct form.
+
 For each extracted constraint, you must perform a step-by-step analysis BEFORE scoring.
 In your `analysis` field, explicitly justify:
 - Why the Subject FQN matches or fails the expected scope.
+- Whether this constraint is part of a specificity pair, and if so, whether its counterpart is present.
 - Why the Predicate matches or fails the architectural intent.
 - Why the Object FQN matches or fails the expected scope.
 
@@ -158,7 +166,7 @@ Respond STRICTLY with JSON format using the exact schema below. Do not include m
   "evaluation": [
     {
       "constraint_index": <int>,
-      "analysis": "<step-by-step reasoning for the Subject, Predicate, and Object>",
+      "analysis": "<step-by-step reasoning for Subject, Predicate, Object, and any specificity pair>",
       "subject_correct": <boolean>,
       "predicate_correct": <boolean>,
       "object_correct": <boolean>,
@@ -212,7 +220,7 @@ class TestExtractRequiredImplementation:
     def result(self, extractor):
         return _extract_cached(
             extractor, ADR_REQUIRED_IMPL, "ADR-003",
-            "docs/adr/ADR-003-auth-middleware.md",
+            "docs/adr/ADR-003-rate-limiting.md",
         )
 
     def test_extracts_at_least_one_constraint(self, result) -> None:
@@ -302,10 +310,30 @@ class TestJudgeEvaluation:
 
     @pytest.fixture
     def adr001_extraction(self, extractor):
-        """Reuse cached ADR-001 extraction instead of another API call."""
         return _extract_cached(
             extractor, ADR_FORBIDDEN_DEP, "ADR-001",
             "docs/adr/ADR-001-mysql-storage.md",
+        )
+
+    @pytest.fixture
+    def adr003_extraction(self, extractor):
+        return _extract_cached(
+            extractor, ADR_REQUIRED_IMPL, "ADR-003",
+            "docs/adr/ADR-003-rate-limiting.md",
+        )
+
+    @pytest.fixture
+    def adr007_extraction(self, extractor):
+        return _extract_cached(
+            extractor, ADR_REQUIRED_DEP, "ADR-007",
+            "docs/adr/ADR-007-centralized-logging.md",
+        )
+
+    @pytest.fixture
+    def adr008_extraction(self, extractor):
+        return _extract_cached(
+            extractor, ADR_PROHIBITED_IMPL, "ADR-008",
+            "docs/adr/ADR-008-auth-centralization.md",
         )
 
     def _serialize_constraints(self, constraints: list) -> str:
@@ -316,7 +344,7 @@ class TestJudgeEvaluation:
                     "predicate": c.predicate.value,
                     "object": c.object,
                     "justification": c.justification,
-                    "char_interval": list(c.char_interval),
+                    "char_interval": list(c.char_interval) if c.char_interval is not None else None,
                 }
                 for c in constraints
             ],
@@ -346,7 +374,7 @@ class TestJudgeEvaluation:
             "model": model_name,
             "messages": [
                 {
-                    "role": "user", 
+                    "role": "user",
                     "content": judge_prompt
                 }
             ]
@@ -362,7 +390,6 @@ class TestJudgeEvaluation:
 
         raw = response_data["choices"][0]["message"]["content"]
         clean = raw.strip()
-        # Strip markdown code fences if present
         if clean.startswith("```"):
             first_newline = clean.index("\n") if "\n" in clean else len(clean)
             clean = clean[first_newline + 1:]
@@ -371,36 +398,60 @@ class TestJudgeEvaluation:
         clean = clean.strip()
         return json.loads(clean)
 
-    def test_judge_scores_above_threshold(self, adr001_extraction) -> None:
-        if adr001_extraction.errors:
-            api_errors = [e for e in adr001_extraction.errors if e.error_type == "api_failure"]
+    def _assert_judge_above_threshold(
+        self, adr_text: str, extraction, adr_label: str,
+    ) -> None:
+        """Reusable assertion: judge scores extraction precision/recall >= threshold."""
+        if extraction.errors:
+            api_errors = [e for e in extraction.errors if e.error_type == "api_failure"]
             if api_errors:
-                pytest.skip(f"API errors: {[e.message for e in api_errors]}")
+                pytest.skip(f"API errors for {adr_label}: {[e.message for e in api_errors]}")
 
-        assert len(adr001_extraction.constraints) >= 1
+        assert len(extraction.constraints) >= 1, f"{adr_label} produced no constraints"
 
-        for c in adr001_extraction.constraints:
-            assert c.char_interval[0] >= 0
-            assert c.char_interval[1] > c.char_interval[0]
+        for c in extraction.constraints:
+            if c.char_interval is not None:
+                assert c.char_interval[0] >= 0
+                assert c.char_interval[1] > c.char_interval[0]
             assert c.justification
 
-        constraints_json = self._serialize_constraints(adr001_extraction.constraints)
+        constraints_json = self._serialize_constraints(extraction.constraints)
 
         try:
-            scores = self._call_judge(ADR_FORBIDDEN_DEP, constraints_json)
+            scores = self._call_judge(adr_text, constraints_json)
         except Exception as e:
-            pytest.skip(f"Judge call failed: {e}")
+            pytest.skip(f"Judge call failed for {adr_label}: {e}")
 
         precision = scores.get("precision", 0.0)
         recall = scores.get("recall", 0.0)
 
         assert precision >= self.MINIMUM_SCORE, (
-            f"Judge precision {precision:.2f} below {self.MINIMUM_SCORE}.\n"
+            f"{adr_label}: Judge precision {precision:.2f} below {self.MINIMUM_SCORE}.\n"
             f"Full scores:\n{json.dumps(scores, indent=2)}"
         )
         assert recall >= self.MINIMUM_SCORE, (
-            f"Judge recall {recall:.2f} below {self.MINIMUM_SCORE}.\n"
+            f"{adr_label}: Judge recall {recall:.2f} below {self.MINIMUM_SCORE}.\n"
             f"Full scores:\n{json.dumps(scores, indent=2)}"
+        )
+
+    def test_judge_adr001_prohibits_dep(self, adr001_extraction) -> None:
+        self._assert_judge_above_threshold(
+            ADR_FORBIDDEN_DEP, adr001_extraction, "ADR-001",
+        )
+
+    def test_judge_adr003_requires_impl(self, adr003_extraction) -> None:
+        self._assert_judge_above_threshold(
+            ADR_REQUIRED_IMPL, adr003_extraction, "ADR-003",
+        )
+
+    def test_judge_adr007_requires_dep(self, adr007_extraction) -> None:
+        self._assert_judge_above_threshold(
+            ADR_REQUIRED_DEP, adr007_extraction, "ADR-007",
+        )
+
+    def test_judge_adr008_prohibits_impl(self, adr008_extraction) -> None:
+        self._assert_judge_above_threshold(
+            ADR_PROHIBITED_IMPL, adr008_extraction, "ADR-008",
         )
 
 

@@ -160,6 +160,19 @@ class TestConstraintEdgeConstruction:
         assert edge.char_interval == (100, 200)
         assert isinstance(edge.char_interval, tuple)
 
+    def test_char_interval_none_allowed(self) -> None:
+        """char_interval is optional; None means no source traceability."""
+        edge = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="app.auth.impl",
+            justification="No direct auth implementation.",
+            char_interval=None,
+            adr_id="ADR-003",
+            adr_path="docs/adr/ADR-003-auth-middleware.md",
+        )
+        assert edge.char_interval is None
+
 
 # ===========================================================================
 # 3. ConstraintEdge validation

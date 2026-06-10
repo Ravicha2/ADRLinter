@@ -95,9 +95,9 @@ class ConstraintEdge:
     predicate: PredicateType
     object: str
     justification: str
-    char_interval: tuple[int, int]
     adr_id: str
     adr_path: str
+    char_interval: tuple[int, int] | None = None
 
     def __post_init__(self) -> None:
         if not self.subject:
@@ -110,11 +110,12 @@ class ConstraintEdge:
             raise ValueError("adr_id must be non-empty")
         if not self.adr_path:
             raise ValueError("adr_path must be non-empty")
-        start, end = self.char_interval
-        if start < 0:
-            raise ValueError(f"char_interval start must be >= 0, got {start}")
-        if end <= start:
-            raise ValueError(f"char_interval end must be > start, got ({start}, {end})")
+        if self.char_interval is not None:
+            start, end = self.char_interval
+            if start < 0:
+                raise ValueError(f"char_interval start must be >= 0, got {start}")
+            if end <= start:
+                raise ValueError(f"char_interval end must be > start, got ({start}, {end})")
 
 
 @dataclass
