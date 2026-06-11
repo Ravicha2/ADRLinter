@@ -1,13 +1,22 @@
 from __future__ import annotations
+
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from cli.config import load_config
+from services.adg import parse_repo
+from services.adg.merge import merge_constraints
 from services.cpt import GitAdapter, process_diff
-from services.models import DiffResult
+from services.extract import extract_all_adrs
+from services.graph.connector import GraphStore
+from services.models import ConstraintEdge, DiffResult, FQNKind
 
 console = Console()
 
@@ -125,11 +134,48 @@ def seed_build(
     repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
 ) -> None:
     """Build an ADG seed snapshot from scratch."""
-    repo_cfg = _get_repo(repo)
-    console.print(f"[bold]Building[/] seed for [cyan]{repo}[/]")
-    console.print(f"  Repo URL : {repo_cfg.url}")
-    console.print("[dim]Not implemented yet.[/]")
+    config = load_config()
+    repo_cfg = config.get_repo(repo)
+    repo_path = _resolve_repo_path(repo_cfg)
 
+    if not repo_path.exists():
+        console.print(f"[red]Error:[/] Repository path does not exist: {repo_path}")
+        raise typer.Exit(code=1)
+
+    # parse repo into adg
+    console.print("[bold]Step 1:[/] Parsing repository structure...")
+    adg = parse_repo(repo_path)
+    console.print(f"  Found {len(adg.nodes)} nodes, {len(adg.edges)} edges")
+
+    # extract ADR constraints
+    console.print("[bold]Step 2:[/] Extracting ADR constraints...")
+    results = extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract)
+    all_constraints: list[ConstraintEdge] = []
+    total_errors = 0
+    for result in results:
+        all_constraints.extend(result.constraints)
+        total_errors += len(result.errors)
+    console.print(f"  Extracted {len(all_constraints)} constraints ({total_errors} errors)")
+
+    # Merge
+    console.print("[bold]Step 3:[/] Merging ADG with constraints...")
+    merged = merge_constraints(adg, all_constraints)
+    external_count = sum(1 for n in merged.nodes if n.kind == FQNKind.EXTERNAL)
+    console.print(f"  {len(merged.constraint_edges)} constraint edges, {external_count} EXTERNAL nodes")
+
+    # Persist to Neo4j
+    console.print("[bold]Step 4:[/] Persisting to Neo4j...")
+    store = GraphStore(
+        uri=os.getenv("NEO4J_URI", "bolt://neo4j:7687"),
+        user=os.getenv("NEO4J_USER", "neo4j"),
+        password=os.getenv("NEO4J_PASSWORD", "password"),
+        database=os.getenv("NEO4J_DATABASE", "neo4j"),
+    )
+    store.connect()
+    store.create_schema()
+    store.store_adg(merged)
+    store.close()
+    console.print(f"[bold green]Done[/] Seed built for [cyan]{repo}[/]")
 
 @seed_app.command("restore")
 def seed_restore(

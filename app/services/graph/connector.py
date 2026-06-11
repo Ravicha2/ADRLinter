@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from neo4j import GraphDatabase, ManagedTransaction
+from neo4j import GraphDatabase
 
 from services.fqn import FQN
 from services.models import ADG, ConstraintEdge, Edge, FQNKind, FQNNode, PredicateType
@@ -68,7 +68,7 @@ class GraphStore:
     def create_schema(self) -> None:
         """Create index and constraints"""
         with self._session() as session:
-            session.run("CREATE CONSTRAINT fqn_unique IF NOT EXISTS FOR (n:FQNNode REQUIRE n.fqn IS UNIQUE)")
+            session.run("CREATE CONSTRAINT fqn_unique IF NOT EXISTS FOR (n:FQNNode) REQUIRE n.fqn IS UNIQUE")
             session.run("CREATE INDEX fqn_file_path IF NOT EXISTS FOR (n:FQNNode) ON (n.file_path)")
 
     def clear_all(self) -> None:

@@ -155,7 +155,7 @@ class ADRExtractor:
 
     def extract_from_directory(self, adr_dir: Path) -> list[ExtractionResult]:
         try:
-            adr_files = sorted(adr_dir.glob("ADR-*.md"))
+            adr_files = sorted(adr_dir.glob("*.md"))
         except OSError as exc:
             return [ExtractionResult(
                 errors=[ExtractionError(

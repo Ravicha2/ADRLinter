@@ -129,13 +129,13 @@ def neo4j_store():
     Uses the test-basic database (ports 7474/7687) from repos.yaml.
     After the test, cleans up all nodes and edges.
     """
-    from app.services.graph.connector import GraphStore
+    from services.graph.connector import GraphStore
 
     store = GraphStore(
         uri="bolt://localhost:7687",
         user="neo4j",
-        password="testpassword",
-        database="test-basic",
+        password="password",
+        database="neo4j",
     )
     store.connect()
     store.create_schema()

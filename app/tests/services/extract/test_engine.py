@@ -657,10 +657,9 @@ class TestExtractFromFile:
         """parse_adr_id correctly extracts ADR IDs from various filenames."""
         from services.extract import parse_adr_id
 
-        assert parse_adr_id("docs/adr/ADR-001-mysql-storage.md") == "ADR-001"
-        assert parse_adr_id("ADR-003-auth-middleware.md") == "ADR-003"
-        assert parse_adr_id("docs/adr/ADR-999-legacy.md") == "ADR-999"
-        assert parse_adr_id("adr-005-microservices.md") == "ADR-005"
+        assert parse_adr_id("docs/adr/001-mysql-storage.md") == "001"
+        assert parse_adr_id("003-auth-middleware.md") == "003"
+        assert parse_adr_id("docs/adr/999-legacy.md") == "999"
 
         # Non-ADR filename falls back to stem
         assert parse_adr_id("docs/adr/style-guide.md") == "style-guide"
@@ -677,7 +676,7 @@ class TestExtractFromDirectory:
     @patch.object(Path, "glob")
     @patch("services.extract.engine.lx.extract")
     def test_scans_all_adr_files(self, mock_extract: MagicMock, mock_glob: MagicMock) -> None:
-        """extract_from_directory processes all ADR-*.md files in a directory."""
+        """extract_from_directory processes all .md files in a directory."""
         from services.extract import ADRExtractor, LangExtractConfig
 
         mock_extract.return_value = _make_langextract_result([_make_extraction()])
@@ -687,8 +686,8 @@ class TestExtractFromDirectory:
 
         adr_dir = Path("/fake/adr/dir")
         mock_glob.return_value = [
-            adr_dir / "ADR-001-mysql-storage.md",
-            adr_dir / "ADR-003-auth-middleware.md",
+            adr_dir / "001-mysql-storage.md",
+            adr_dir / "003-auth-middleware.md",
         ]
 
         with patch.object(Path, "read_text", return_value=ADR_001_TEXT):
@@ -699,7 +698,7 @@ class TestExtractFromDirectory:
 
     @patch("services.extract.engine.lx.extract")
     def test_empty_directory_returns_empty(self, mock_extract: MagicMock) -> None:
-        """A directory with no ADR-*.md files returns empty results."""
+        """A directory with no .md files returns empty results."""
         from services.extract import ADRExtractor, LangExtractConfig
 
         mock_extract.return_value = _make_langextract_result([])
