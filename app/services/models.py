@@ -11,6 +11,7 @@ class FQNKind(Enum):
     CLASS = "class"
     FUNCTION = "function"
     METHOD = "method"
+    EXTERNAL = "external"
 
 
 @dataclass
@@ -35,6 +36,7 @@ class Edge:
 class ADG:
     nodes: list[FQNNode] = field(default_factory=list)
     edges: list[Edge] = field(default_factory=list)
+    constraint_edges: list[ConstraintEdge] = field(default_factory=list)
 
 
 @dataclass
@@ -98,6 +100,7 @@ class ConstraintEdge:
     adr_id: str
     adr_path: str
     char_interval: tuple[int, int] | None = None
+    specificity: float = 0.0
 
     def __post_init__(self) -> None:
         if not self.subject:
