@@ -15,6 +15,13 @@ KIND_TO_LABEL = {
     FQNKind.EXTERNAL: "External",
 }
 
+EDGE_KIND_TO_REL = {
+    "CONTAINS": "CONTAINS",
+    "CALLS": "CALLS",
+    "INHERITS": "INHERITS",
+    "IMPORTS": "IMPORTS",
+}
+
 PREDICATE_TO_REL = {
     PredicateType.PROHIBITS_DEPENDENCY: "PROHIBITS_DEPENDENCY",
     PredicateType.REQUIRES_IMPLEMENTATION: "REQUIRES_IMPLEMENTATION",
@@ -25,14 +32,14 @@ PREDICATE_TO_REL = {
 REL_TO_PREDICATE = {val: key for key, val in PREDICATE_TO_REL.items()}
 
 class GraphStore:
-    def __init__(self, uri:str, user:str, password: str, database: str="neo4j") -> None:
+    def __init__(self, uri: str, user: str, password: str, database: str = "neo4j") -> None:
         self._uri = uri
         self._user = user
         self._password = password
         self._database = database
         self._driver = None
 
-    def connector(self) -> None:
+    def connect(self) -> None:
         self._driver = GraphDatabase.driver(self._uri, auth=(self._user, self._password))
 
     def close(self) -> None:
@@ -41,25 +48,40 @@ class GraphStore:
             self._driver = None
 
     def _session(self):
+        if self._driver is None:
+            raise RuntimeError("Call connect() before using the store")
         return self._driver.session(database=self._database)
-    
+
+    @staticmethod
+    def _row_to_fqn_node(record) -> FQNNode:
+        props = dict(record["n"])
+        return FQNNode(
+            fqn=FQN.from_dotted(props["fqn"]),
+            kind=FQNKind(props["kind"]),
+            file_path=props["file_path"],
+            line_start=props["line_start"],
+            line_end=props["line_end"],
+            start_byte=props.get("start_byte", 0),
+            end_byte=props.get("end_byte", 0),
+        )
+
     def create_schema(self) -> None:
         """Create index and constraints"""
-        with self._session as s:
-            s.run("CREATE CONSTRAINT fqn_unique IF NOT EXIST FOR (n:FQNNode REQUIRE n.fqn IS UNIQUE)")
-            s.run("CREATE INDEX fqn_file_path IF NOT EXISTS FOR (n:FQNNode) ON (n.file_path)")
+        with self._session() as session:
+            session.run("CREATE CONSTRAINT fqn_unique IF NOT EXISTS FOR (n:FQNNode REQUIRE n.fqn IS UNIQUE)")
+            session.run("CREATE INDEX fqn_file_path IF NOT EXISTS FOR (n:FQNNode) ON (n.file_path)")
 
     def clear_all(self) -> None:
         """Delete all nodes and relationships"""
-        with self._session() as s:
-            s.run("MATCH (n) DETACH DELETE n")
+        with self._session() as session:
+            session.run("MATCH (n) DETACH DELETE n")
 
     # --- Node CRUD ---
 
     def store_node(self, node: FQNNode) -> None:
         label = KIND_TO_LABEL[node.kind]
-        with self._session() as s:
-            s.run(
+        with self._session() as session:
+            session.run(
                 f"MERGE (n:FQNNode:{label} {{fqn: $fqn}}) "
                 "SET n.kind = $kind, n.file_path = $file_path, "
                 "n.line_start = $line_start, n.line_end = $line_end, "
@@ -69,95 +91,91 @@ class GraphStore:
                 line_start=node.line_start, line_end=node.line_end,
                 start_byte=node.start_byte, end_byte=node.end_byte,
             )
+
     def load_node(self, fqn: FQN) -> FQNNode | None:
-        with self._session() as s:
-            result = s.run("MATCH (n: FQNNode {fqn: $fqn}) RETURN n", fqn=str(fqn))
+        with self._session() as session:
+            result = session.run("MATCH (n:FQNNode {fqn: $fqn}) RETURN n", fqn=str(fqn))
             record = result.single()
             if record is None:
                 return None
-            props = dict(record["n"])
-            return FQNNode(
-                fqn=FQN.from_dotted(props["fqn"]),
-                kind=FQNKind(props["kind"]),
-                file_path=props["file_path"],
-                line_start=props["line_start"],
-                line_end=props["line_end"],
-                start_byte=props.get("start_byte", 0),
-                end_byte=props.get("end_byte", 0),
-            )
+            return self._row_to_fqn_node(record)
 
     def find_nodes_by_file(self, file_path: str) -> list[FQNNode]:
-        with self._session() as s:
-            result = s.run(
+        with self._session() as session:
+            result = session.run(
                 "MATCH (n:FQNNode) WHERE n.file_path = $file_path RETURN n",
                 file_path=file_path,
             )
-            nodes = []
-            for record in result:
-                props = dict(record["n"])
-                nodes.append(FQNNode(
-                    fqn=FQN.from_dotted(props["fqn"]),
-                    kind=FQNKind(props["kind"]),
-                    file_path=props["file_path"],
-                    line_start=props["line_start"],
-                    line_end=props["line_end"],
-                    start_byte=props.get("start_byte", 0),
-                    end_byte=props.get("end_byte", 0),
-                ))
-            return nodes
-    
+            return [self._row_to_fqn_node(record) for record in result]
+
     # --- Edge CRUD ---
 
     def store_edge(self, edge: Edge) -> None:
-        with self._session() as s:
-            s.run(
-                "MATCH (src:FQNNode {fqn: $source}) "
-                "MATCH (tgt:FQNNode {fqn: $target}) "
-                "CREATE (src)-[:%s]->(tgt)" % edge.kind,
+        rel_type = EDGE_KIND_TO_REL[edge.kind]
+        with self._session() as session:
+            session.run(
+                f"MATCH (src:FQNNode {{fqn: $source}}) "
+                f"MATCH (tgt:FQNNode {{fqn: $target}}) "
+                f"CREATE (src)-[:{rel_type}]->(tgt)",
                 source=edge.source, target=edge.target,
             )
-    
+
     def load_edges_from(self, fqn: FQN) -> list[Edge]:
-        with self._session() as s:
-            edge_tgt_result = s.run(
+        with self._session() as session:
+            result = session.run(
                 "MATCH (src:FQNNode {fqn: $fqn})-[r]->(tgt:FQNNode) "
                 "RETURN type(r) AS kind, tgt.fqn AS target",
                 fqn=str(fqn),
             )
             return [
-                Edge(source=str(fqn), 
-                target=edge_tgt_result["target"], 
-                kind=edge_tgt_result["kind"]) 
-                for r in edge_tgt_result
+                Edge(source=str(fqn), target=r["target"], kind=r["kind"])
+                for r in result
             ]
 
     # --- Constraint edge CRUD ---
 
     def store_constraint_edge(self, constraint_edge: ConstraintEdge) -> None:
         rel_type = PREDICATE_TO_REL[constraint_edge.predicate]
-        with self._session() as s:
-            s.run(
-                "MATCH (src:FQNNode {fqn: $subject}) "
-                "MATCH (tgt:FQNNode {fqn: $object}) "
-                "CREATE (src)-[r:%s {"
+        with self._session() as session:
+            session.run(
+                f"MATCH (src:FQNNode {{fqn: $subject}}) "
+                f"MATCH (tgt:FQNNode {{fqn: $object}}) "
+                f"CREATE (src)-[r:{rel_type} {{"
                 "adr_id: $adr_id, adr_path: $adr_path, "
                 "justification: $justification, "
                 "char_start: $char_start, char_end: $char_end, "
                 "specificity: $specificity"
-                "}]->(tgt)" % rel_type,
-                subject=constraint_edge.subject, 
+                "}]->(tgt)",
+                subject=constraint_edge.subject,
                 object=constraint_edge.object,
-                adr_id=constraint_edge.adr_id, 
+                adr_id=constraint_edge.adr_id,
                 adr_path=constraint_edge.adr_path,
                 justification=constraint_edge.justification,
                 char_start=constraint_edge.char_interval[0] if constraint_edge.char_interval else None,
                 char_end=constraint_edge.char_interval[1] if constraint_edge.char_interval else None,
                 specificity=constraint_edge.specificity,
             )
-    
+
+    @staticmethod
+    def _row_to_constraint_edge(row) -> ConstraintEdge:
+        predicate = REL_TO_PREDICATE[row["predicate"]]
+        char_interval = None
+        if row["char_start"] is not None:
+            char_interval = (row["char_start"], row["char_end"])
+        return ConstraintEdge(
+            subject=row["subject"],
+            predicate=predicate,
+            object=row["object"],
+            justification=row["justification"],
+            adr_id=row["adr_id"],
+            adr_path=row["adr_path"],
+            char_interval=char_interval,
+            specificity=row.get("specificity", 0.0),
+        )
+
     def load_constraint_edges(self, adr_id: str) -> list[ConstraintEdge]:
-        with self._session() as s:
-            constraint_edges = s.run(
+        with self._session() as session:
+            result = session.run(
                 "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
                 "WHERE r.adr_id = $adr_id "
                 "RETURN src.fqn AS subject, type(r) AS predicate, "
@@ -167,19 +185,70 @@ class GraphStore:
                 "r.specificity AS specificity",
                 adr_id=adr_id,
             )
-            edges = []
-            for constraint_edge in constraint_edges:
-                predicate = REL_TO_PREDICATE[constraint_edge["predicate"]]
-                char_interval = None
-                if constraint_edge["char_start"] is not None:
-                    char_interval = (constraint_edge["char_start"], constraint_edge["char_end"])
-                    edges.append(ConstraintEdge(
-                        subject=constraint_edge["subject"], 
-                        predicate=predicate, 
-                        object=constraint_edge["object"],
-                        justification=constraint_edge["justification"],
-                        adr_id=constraint_edge["adr_id"], 
-                        adr_path=constraint_edge["adr_path"],
-                        char_interval=char_interval, 
-                        specificity=constraint_edge.get("specificity", 0.0),
-                    ))
+            return [self._row_to_constraint_edge(r) for r in result]
+
+    def load_all_constraint_edges(self) -> list[ConstraintEdge]:
+        with self._session() as session:
+            result = session.run(
+                "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
+                "WHERE type(r) IN $rel_types "
+                "RETURN src.fqn AS subject, type(r) AS predicate, "
+                "tgt.fqn AS object, r.justification AS justification, "
+                "r.adr_id AS adr_id, r.adr_path AS adr_path, "
+                "r.char_start AS char_start, r.char_end AS char_end, "
+                "r.specificity AS specificity",
+                rel_types=list(PREDICATE_TO_REL.values()),
+            )
+            return [self._row_to_constraint_edge(r) for r in result]
+
+    def delete_constraints_by_adr(self, adr_id: str) -> None:
+        with self._session() as session:
+            session.run(
+                "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
+                "WHERE r.adr_id = $adr_id DELETE r",
+                adr_id=adr_id,
+            )
+
+    # --- Full ADG ---
+
+    def store_adg(self, adg: ADG) -> None:
+        for node in adg.nodes:
+            self.store_node(node)
+        for edge in adg.edges:
+            self.store_edge(edge)
+        for constraint_edge in adg.constraint_edges:
+            self.store_constraint_edge(constraint_edge)
+
+    def load_adg(self) -> ADG:
+        with self._session() as session:
+            node_result = session.run("MATCH (n:FQNNode) RETURN n")
+            nodes = [self._row_to_fqn_node(record) for record in node_result]
+
+            edge_result = session.run(
+                "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
+                "WHERE type(r) IN $rel_types "
+                "RETURN src.fqn AS source, type(r) AS kind, tgt.fqn AS target",
+                rel_types=list(EDGE_KIND_TO_REL.values()),
+            )
+            edges = [Edge(source=r["source"], target=r["target"], kind=r["kind"]) for r in edge_result]
+
+            constraint_edge_result = session.run(
+                "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
+                "WHERE type(r) IN $rel_types "
+                "RETURN src.fqn AS subject, type(r) AS predicate, "
+                "tgt.fqn AS object, r.justification AS justification, "
+                "r.adr_id AS adr_id, r.adr_path AS adr_path, "
+                "r.char_start AS char_start, r.char_end AS char_end, "
+                "r.specificity AS specificity",
+                rel_types=list(PREDICATE_TO_REL.values()),
+            )
+            constraint_edges = [self._row_to_constraint_edge(r) for r in constraint_edge_result]
+            return ADG(nodes=nodes, edges=edges, constraint_edges=constraint_edges)
+
+    def delete_nodes_by_file(self, file_path: str) -> None:
+        with self._session() as session:
+            session.run(
+                "MATCH (n:FQNNode) WHERE n.file_path = $file_path "
+                "DETACH DELETE n",
+                file_path=file_path,
+            )
