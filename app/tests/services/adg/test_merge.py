@@ -320,7 +320,8 @@ class TestMergeConstraints:
     def test_merge_preserves_structural_nodes_and_edges(self, sample_adg: ADG, sample_constraints: list[ConstraintEdge]) -> None:
         """merge_constraints does not modify structural nodes or edges."""
         result = merge_constraints(sample_adg, sample_constraints)
-        assert len(result.nodes) == len(sample_adg.nodes)
+        structural = [n for n in result.nodes if n.kind != FQNKind.EXTERNAL]
+        assert len(structural) == len(sample_adg.nodes)
         assert len(result.edges) == len(sample_adg.edges)
 
     def test_merge_adds_external_for_orphan_references(self, sample_adg: ADG) -> None:
