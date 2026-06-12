@@ -200,7 +200,10 @@ class TestConstraintEdgeCRUD:
     """Store and retrieve constraint edges from Neo4j."""
 
     def test_store_and_load_constraint_edge(self, neo4j_store) -> None:
-        """Constraint edges are standalone nodes; no FQN endpoint nodes needed."""
+        """Constraint edges are relationships between FQN endpoints.
+
+        Missing endpoints get temp EXTERNAL nodes via _ensure_endpoint.
+        """
         ce = ConstraintEdge(
             subject="app.api.*",
             predicate=PredicateType.REQUIRES_IMPLEMENTATION,
@@ -257,14 +260,20 @@ class TestADGPersistence:
         neo4j_store.store_adg(sample_adg_with_constraints)
         loaded = neo4j_store.load_adg()
 
-        assert len(loaded.nodes) == len(sample_adg_with_constraints.nodes)
+        # Loaded ADG may have more nodes: _ensure_endpoint creates EXTERNAL
+        # placeholder nodes for wildcard/orphan constraint endpoints
+        assert len(loaded.nodes) >= len(sample_adg_with_constraints.nodes)
         assert len(loaded.edges) == len(sample_adg_with_constraints.edges)
         assert len(loaded.constraint_edges) == len(sample_adg_with_constraints.constraint_edges)
 
-        # Verify all nodes are present
+        # Verify all original nodes are present
         loaded_fqns = {str(n.fqn) for n in loaded.nodes}
         expected_fqns = {str(n.fqn) for n in sample_adg_with_constraints.nodes}
-        assert loaded_fqns == expected_fqns
+        assert expected_fqns.issubset(loaded_fqns)
+
+        # Verify EXTERNAL placeholder nodes were created for wildcard subjects
+        assert "app.api.*" in loaded_fqns
+        assert "app.services.*" in loaded_fqns
 
         # Verify constraint edges with wildcard subjects persist correctly
         loaded_subjects = {ce.subject for ce in loaded.constraint_edges}
@@ -272,7 +281,11 @@ class TestADGPersistence:
         assert "app.services.*" in loaded_subjects
 
     def test_delete_nodes_by_file_path(self, neo4j_store, sample_adg_with_constraints: ADG) -> None:
-        """Delete-and-reinsert: remove all nodes for a file, then re-add."""
+        """Deleting code nodes preserves ADR-derived constraint edges.
+
+        Constraint endpoints whose code node was deleted get replaced with
+        temp EXTERNAL placeholders, so the constraint survives.
+        """
         neo4j_store.store_adg(sample_adg_with_constraints)
 
         # Delete nodes for app/api/users.py
@@ -283,5 +296,5 @@ class TestADGPersistence:
         assert not any(n.fqn == FQN.from_dotted("app.api.users") for n in loaded.nodes)
         # Other nodes remain
         assert any(n.fqn == FQN.from_dotted("app.api") for n in loaded.nodes)
-        # Constraint edges are independent of FQN nodes, so they survive
+        # Constraint edges survive node deletion (ADR constraints outlive code)
         assert len(loaded.constraint_edges) == len(sample_adg_with_constraints.constraint_edges)

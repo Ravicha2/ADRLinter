@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 
@@ -20,11 +21,24 @@ from services.models import ConstraintEdge, DiffResult, FQNKind
 
 console = Console()
 
+def _setup_logging(verbose: int = 0) -> None:
+    level = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}.get(verbose, logging.DEBUG)
+    logging.basicConfig(
+        level=level,
+        format="%(name)s: %(message)s",
+    )
+
 app = typer.Typer(
     name="cpt",
     help="CPT Detection System: validate commits against ADR constraints.",
     no_args_is_help=True,
 )
+
+@app.callback()
+def main(
+    verbose: int = typer.Option(0, "--verbose", "-v", count=True, help="Increase log verbosity (-v=INFO, -vv=DEBUG)"),
+) -> None:
+    _setup_logging(verbose)
 
 seed_app = typer.Typer(help="Manage ADG seed snapshots.")
 app.add_typer(seed_app, name="seed")
