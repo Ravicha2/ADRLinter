@@ -306,7 +306,7 @@ class GraphStore:
     def _find_constraints_on_file(self, file_path: str) -> list[ConstraintEdge]:
         """Return constraint edges connected to nodes with the given file_path."""
         with self._session() as session:
-            outgoing = session.run(
+            outgoing_records = list(session.run(
                 "MATCH (n:FQNNode) WHERE n.file_path = $file_path "
                 "MATCH (n)-[r]->(tgt:FQNNode) WHERE type(r) IN $predicate_types "
                 "RETURN n.fqn AS subject, type(r) AS predicate, tgt.fqn AS object, "
@@ -316,8 +316,8 @@ class GraphStore:
                 "r.specificity AS specificity",
                 file_path=file_path,
                 predicate_types=PREDICATE_VALUES,
-            )
-            incoming = session.run(
+            ))
+            incoming_records = list(session.run(
                 "MATCH (n:FQNNode) WHERE n.file_path = $file_path "
                 "MATCH (src:FQNNode)-[r]->(n) WHERE type(r) IN $predicate_types "
                 "RETURN src.fqn AS subject, type(r) AS predicate, n.fqn AS object, "
@@ -327,10 +327,10 @@ class GraphStore:
                 "r.specificity AS specificity",
                 file_path=file_path,
                 predicate_types=PREDICATE_VALUES,
-            )
+            ))
         seen: set[tuple[str, str, str, str]] = set()
         results: list[ConstraintEdge] = []
-        for record in list(outgoing) + list(incoming):
+        for record in outgoing_records + incoming_records:
             ce = self._row_to_constraint_edge(record)
             key = (ce.subject, ce.predicate.value, ce.object, ce.adr_id)
             if key not in seen:
