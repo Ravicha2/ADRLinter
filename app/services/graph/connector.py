@@ -30,6 +30,8 @@ PREDICATE_TO_REL = {
 }
 
 REL_TO_PREDICATE = {val: key for key, val in PREDICATE_TO_REL.items()}
+CONSTRAINT_LABEL = "ConstraintEdge"
+PREDICATE_VALUES = list(PREDICATE_TO_REL.values())
 
 class GraphStore:
     def __init__(self, uri: str, user: str, password: str, database: str = "neo4j") -> None:
@@ -70,6 +72,7 @@ class GraphStore:
         with self._session() as session:
             session.run("CREATE CONSTRAINT fqn_unique IF NOT EXISTS FOR (n:FQNNode) REQUIRE n.fqn IS UNIQUE")
             session.run("CREATE INDEX fqn_file_path IF NOT EXISTS FOR (n:FQNNode) ON (n.file_path)")
+            session.run("CREATE INDEX constraint_adr_id IF NOT EXISTS FOR (c:ConstraintEdge) ON (c.adr_id)")
 
     def clear_all(self) -> None:
         """Delete all nodes and relationships"""
@@ -135,18 +138,17 @@ class GraphStore:
     # --- Constraint edge CRUD ---
 
     def store_constraint_edge(self, constraint_edge: ConstraintEdge) -> None:
-        rel_type = PREDICATE_TO_REL[constraint_edge.predicate]
+        predicate_str = PREDICATE_TO_REL[constraint_edge.predicate]
         with self._session() as session:
             session.run(
-                f"MATCH (src:FQNNode {{fqn: $subject}}) "
-                f"MATCH (tgt:FQNNode {{fqn: $object}}) "
-                f"CREATE (src)-[r:{rel_type} {{"
-                "adr_id: $adr_id, adr_path: $adr_path, "
-                "justification: $justification, "
+                "CREATE (c:ConstraintEdge {"
+                "subject: $subject, predicate: $predicate, object: $object, "
+                "justification: $justification, adr_id: $adr_id, adr_path: $adr_path, "
                 "char_start: $char_start, char_end: $char_end, "
                 "specificity: $specificity"
-                "}]->(tgt)",
+                "})",
                 subject=constraint_edge.subject,
+                predicate=predicate_str,
                 object=constraint_edge.object,
                 adr_id=constraint_edge.adr_id,
                 adr_path=constraint_edge.adr_path,
@@ -157,55 +159,40 @@ class GraphStore:
             )
 
     @staticmethod
-    def _row_to_constraint_edge(row) -> ConstraintEdge:
-        predicate = REL_TO_PREDICATE[row["predicate"]]
+    def _row_to_constraint_edge(record) -> ConstraintEdge:
+        edge_data = dict(record["c"])
+        predicate = REL_TO_PREDICATE[edge_data["predicate"]]
         char_interval = None
-        if row["char_start"] is not None:
-            char_interval = (row["char_start"], row["char_end"])
+        if edge_data.get("char_start") is not None:
+            char_interval = (edge_data["char_start"], edge_data["char_end"])
         return ConstraintEdge(
-            subject=row["subject"],
+            subject=edge_data["subject"],
             predicate=predicate,
-            object=row["object"],
-            justification=row["justification"],
-            adr_id=row["adr_id"],
-            adr_path=row["adr_path"],
+            object=edge_data["object"],
+            justification=edge_data["justification"],
+            adr_id=edge_data["adr_id"],
+            adr_path=edge_data["adr_path"],
             char_interval=char_interval,
-            specificity=row.get("specificity", 0.0),
+            specificity=edge_data.get("specificity", 0.0),
         )
 
     def load_constraint_edges(self, adr_id: str) -> list[ConstraintEdge]:
         with self._session() as session:
             result = session.run(
-                "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
-                "WHERE r.adr_id = $adr_id "
-                "RETURN src.fqn AS subject, type(r) AS predicate, "
-                "tgt.fqn AS object, r.justification AS justification, "
-                "r.adr_id AS adr_id, r.adr_path AS adr_path, "
-                "r.char_start AS char_start, r.char_end AS char_end, "
-                "r.specificity AS specificity",
+                "MATCH (c:ConstraintEdge) WHERE c.adr_id = $adr_id RETURN c",
                 adr_id=adr_id,
             )
-            return [self._row_to_constraint_edge(r) for r in result]
+            return [self._row_to_constraint_edge(record) for record in result]
 
     def load_all_constraint_edges(self) -> list[ConstraintEdge]:
         with self._session() as session:
-            result = session.run(
-                "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
-                "WHERE type(r) IN $rel_types "
-                "RETURN src.fqn AS subject, type(r) AS predicate, "
-                "tgt.fqn AS object, r.justification AS justification, "
-                "r.adr_id AS adr_id, r.adr_path AS adr_path, "
-                "r.char_start AS char_start, r.char_end AS char_end, "
-                "r.specificity AS specificity",
-                rel_types=list(PREDICATE_TO_REL.values()),
-            )
-            return [self._row_to_constraint_edge(r) for r in result]
+            result = session.run("MATCH (c:ConstraintEdge) RETURN c")
+            return [self._row_to_constraint_edge(record) for record in result]
 
     def delete_constraints_by_adr(self, adr_id: str) -> None:
         with self._session() as session:
             session.run(
-                "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
-                "WHERE r.adr_id = $adr_id DELETE r",
+                "MATCH (c:ConstraintEdge) WHERE c.adr_id = $adr_id DELETE c",
                 adr_id=adr_id,
             )
 
@@ -232,17 +219,7 @@ class GraphStore:
             )
             edges = [Edge(source=r["source"], target=r["target"], kind=r["kind"]) for r in edge_result]
 
-            constraint_edge_result = session.run(
-                "MATCH (src:FQNNode)-[r]->(tgt:FQNNode) "
-                "WHERE type(r) IN $rel_types "
-                "RETURN src.fqn AS subject, type(r) AS predicate, "
-                "tgt.fqn AS object, r.justification AS justification, "
-                "r.adr_id AS adr_id, r.adr_path AS adr_path, "
-                "r.char_start AS char_start, r.char_end AS char_end, "
-                "r.specificity AS specificity",
-                rel_types=list(PREDICATE_TO_REL.values()),
-            )
-            constraint_edges = [self._row_to_constraint_edge(r) for r in constraint_edge_result]
+            constraint_edges = self.load_all_constraint_edges()
             return ADG(nodes=nodes, edges=edges, constraint_edges=constraint_edges)
 
     def delete_nodes_by_file(self, file_path: str) -> None:

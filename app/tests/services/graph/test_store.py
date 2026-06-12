@@ -85,8 +85,8 @@ def sample_adg_with_constraints() -> ADG:
 class TestSchema:
     """Neo4j schema: unique constraint on fqn, index on file_path."""
 
-    def test_unique_constraint_on_fqn(self, neo4j_store) -> None:
-        """Creating a node with duplicate fqn should fail."""
+    def test_merge_upserts_duplicate_fqn(self, neo4j_store) -> None:
+        """MERGE on duplicate fqn updates the node instead of creating a duplicate."""
         neo4j_store.create_schema()
         neo4j_store.store_node(FQNNode(
             fqn=FQN.from_dotted("app.api"),
@@ -94,13 +94,16 @@ class TestSchema:
             file_path="app/api/__init__.py",
             line_start=0, line_end=0, start_byte=0, end_byte=0,
         ))
-        with pytest.raises(Exception):
-            neo4j_store.store_node(FQNNode(
-                fqn=FQN.from_dotted("app.api"),
-                kind=FQNKind.MODULE,
-                file_path="app/api/__init__.py",
-                line_start=0, line_end=0, start_byte=0, end_byte=0,
-            ))
+        # Upsert with different line_end should update, not duplicate
+        neo4j_store.store_node(FQNNode(
+            fqn=FQN.from_dotted("app.api"),
+            kind=FQNKind.MODULE,
+            file_path="app/api/__init__.py",
+            line_start=0, line_end=99, start_byte=0, end_byte=0,
+        ))
+        loaded = neo4j_store.load_node(FQN.from_dotted("app.api"))
+        assert loaded is not None
+        assert loaded.line_end == 99
 
     def test_index_on_file_path(self, neo4j_store) -> None:
         """Nodes can be queried by file_path efficiently."""
@@ -197,16 +200,9 @@ class TestConstraintEdgeCRUD:
     """Store and retrieve constraint edges from Neo4j."""
 
     def test_store_and_load_constraint_edge(self, neo4j_store) -> None:
-        neo4j_store.store_node(FQNNode(
-            fqn=FQN.from_dotted("app.api.users"), kind=FQNKind.MODULE,
-            file_path="app/api/users.py", line_start=0, line_end=50, start_byte=0, end_byte=0,
-        ))
-        neo4j_store.store_node(FQNNode(
-            fqn=FQN.from_dotted("app.auth.middleware"), kind=FQNKind.MODULE,
-            file_path="app/auth/middleware.py", line_start=0, line_end=60, start_byte=0, end_byte=0,
-        ))
+        """Constraint edges are standalone nodes; no FQN endpoint nodes needed."""
         ce = ConstraintEdge(
-            subject="app.api.users",
+            subject="app.api.*",
             predicate=PredicateType.REQUIRES_IMPLEMENTATION,
             object="app.auth.middleware",
             justification="Auth required.",
@@ -219,22 +215,13 @@ class TestConstraintEdgeCRUD:
 
         constraints = neo4j_store.load_constraint_edges(adr_id="ADR-003")
         assert len(constraints) == 1
-        assert constraints[0].subject == "app.api.users"
+        assert constraints[0].subject == "app.api.*"
         assert constraints[0].predicate == PredicateType.REQUIRES_IMPLEMENTATION
         assert constraints[0].object == "app.auth.middleware"
         assert constraints[0].specificity == 4.0
 
     def test_delete_constraints_by_adr_id(self, neo4j_store) -> None:
         """Full replace per ADR: delete all constraints for a given ADR."""
-        neo4j_store.store_node(FQNNode(
-            fqn=FQN.from_dotted("app.api.users"), kind=FQNKind.MODULE,
-            file_path="app/api/users.py", line_start=0, line_end=50, start_byte=0, end_byte=0,
-        ))
-        neo4j_store.store_node(FQNNode(
-            fqn=FQN.from_dotted("logging"), kind=FQNKind.EXTERNAL,
-            file_path="", line_start=-1, line_end=-1, start_byte=0, end_byte=0,
-        ))
-
         ce1 = ConstraintEdge(
             subject="app.api.users", predicate=PredicateType.REQUIRES_IMPLEMENTATION,
             object="app.auth.middleware", justification="Auth.",
@@ -279,6 +266,11 @@ class TestADGPersistence:
         expected_fqns = {str(n.fqn) for n in sample_adg_with_constraints.nodes}
         assert loaded_fqns == expected_fqns
 
+        # Verify constraint edges with wildcard subjects persist correctly
+        loaded_subjects = {ce.subject for ce in loaded.constraint_edges}
+        assert "app.api.*" in loaded_subjects
+        assert "app.services.*" in loaded_subjects
+
     def test_delete_nodes_by_file_path(self, neo4j_store, sample_adg_with_constraints: ADG) -> None:
         """Delete-and-reinsert: remove all nodes for a file, then re-add."""
         neo4j_store.store_adg(sample_adg_with_constraints)
@@ -291,3 +283,5 @@ class TestADGPersistence:
         assert not any(n.fqn == FQN.from_dotted("app.api.users") for n in loaded.nodes)
         # Other nodes remain
         assert any(n.fqn == FQN.from_dotted("app.api") for n in loaded.nodes)
+        # Constraint edges are independent of FQN nodes, so they survive
+        assert len(loaded.constraint_edges) == len(sample_adg_with_constraints.constraint_edges)

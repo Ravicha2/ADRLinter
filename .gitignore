@@ -23,7 +23,7 @@ logs/
 # agent doc
 .claude
 CLAUDE.md
-CONTEXT.md
+.context/
 # seeded repos
 repos.DS_Store
 repos/
