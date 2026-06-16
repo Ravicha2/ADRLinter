@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from services.fqn import FQN
-from services.models import ADG, ChangedFQN, ConstraintEdge, Edge, PredicateType
+from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, PredicateType
 from services.matching import MatchStatus, fqn_matches_pattern
 from collections import deque
 
@@ -34,7 +34,7 @@ def _reachable(start:str, target:str, edges: set[Edge], kinds: set[str]) -> bool
     queue = deque([start])
     while queue:
         current = queue.popleft()
-        if current == target:
+        if current == target and current != start:
             return True
         if current in visited:
             continue
@@ -42,6 +42,8 @@ def _reachable(start:str, target:str, edges: set[Edge], kinds: set[str]) -> bool
         for edge in edges:
             if edge.source == current and edge.kind in kinds and edge.target not in visited:
                 queue.append(edge.target)
+                if edge.target == target:
+                    return True
     
     return False
 
@@ -103,7 +105,7 @@ def check_predicates(
         evidence = ""
 
         if pred == PredicateType.PROHIBITS_DEPENDENCY:
-            if _reachable(subject_str, object_str, reachable_edges, {"IMPORTS", "CALLS", "INHERIT"}):
+            if _reachable(subject_str, object_str, reachable_edges, {"IMPORTS", "CALLS", "INHERITS"}):
                 violated = True
                 evidence = f"{subject_str} has dependency path to {object_str}"
 
@@ -113,11 +115,18 @@ def check_predicates(
                 evidence = f"{subject_str} implements {object_str}"
 
         elif pred == PredicateType.REQUIRES_DEPENDENCY:
-            if not _reachable(subject_str, object_str, reachable_edges, {"IMPORTS", "CALLS", "INHERIT"}):
+            # ponytail: REQUIRES only fires for changed FQN and its ancestors, not siblings
+            changed_str = str(changed_fqn)
+            if subject_str != changed_str and not changed_str.startswith(subject_str + "."):
+                continue
+            if not _reachable(subject_str, object_str, reachable_edges, {"IMPORTS", "CALLS", "INHERITS"}):
                 violated = True
                 evidence = f"{subject_str} has no dependency on {object_str}"
 
         elif pred == PredicateType.REQUIRES_IMPLEMENTATION:
+            changed_str = str(changed_fqn)
+            if subject_str != changed_str and not changed_str.startswith(subject_str + "."):
+                continue
             if not _reachable(subject_str, object_str, reachable_edges, {"CONTAINS", "CALLS"}):
                 violated = True
                 evidence = f"{subject_str} does not implement {object_str}"
@@ -131,4 +140,86 @@ def check_predicates(
                 change_type=change_type,
             ))
     return violations
-        
+
+def resolve(violations: list[Violation]) -> list[Violation]:
+    seen: set[tuple[str, str]] = set()
+    deduped: list[Violation] = []
+
+    for violation in violations:
+        # ponytail: dedup by constraint identity, not just ADR; same ADR can have conflicting constraints
+        key = (violation.constraint.subject, violation.constraint.predicate, violation.constraint.object, str(violation.matched_fqn))
+        if key not in seen:
+            seen.add(key)
+            deduped.append(violation)
+    
+    suppress: set[int] = set()
+
+    for i, violation_i in enumerate(deduped):
+        for j, violation_j in enumerate(deduped):
+            if i == j or i in suppress or j in suppress:
+                continue
+            
+            if violation_i.constraint.object != violation_j.constraint.object:
+                continue
+
+            violation_i_prohibit = violation_i.constraint.predicate.value.startswith("prohibits_")
+            violation_i_require = violation_i.constraint.predicate.value.startswith("requires_")
+            violation_j_prohibit = violation_j.constraint.predicate.value.startswith("prohibits_")
+            violation_j_require = violation_j.constraint.predicate.value.startswith("requires_")
+
+            if violation_i_prohibit and violation_j_require:
+                if violation_j.constraint.specificity > violation_i.constraint.specificity:
+                    suppress.add(i)
+                elif violation_i.constraint.specificity > violation_j.constraint.specificity:
+                    suppress.add(j)
+            
+            elif violation_i_require and violation_j_prohibit:
+                if violation_i.constraint.specificity > violation_j.constraint.specificity:
+                    suppress.add(j)
+                elif violation_j.constraint.specificity > violation_i.constraint.specificity:
+                    suppress.add(i)
+
+    return [violation for i, violation in enumerate(deduped) if i not in suppress]
+
+_PRIORITY = {MatchStatus.EXACT: 3, MatchStatus.WILDCARD: 2, MatchStatus.SEGMENT: 1}
+
+
+def detect(diff_result: DiffResult, adg: ADG, k: int = 3) -> CPTResult:
+    neighborhood, reachable = bfs_neighborhood(adg, diff_result.changed_fqns, k)
+    retrieved = retrieve_constraints(neighborhood, adg)
+
+    # Unique constraints that matched at least one FQN in the neighborhood
+    active: dict[int, ConstraintEdge] = {
+        id(rc.constraint): rc.constraint for rc in retrieved
+    }
+
+    all_violations: list[Violation] = []
+
+    for constraint in active.values():
+        sub_matches = [
+            (f, s) for f in neighborhood
+            if (s := fqn_matches_pattern(f, constraint.subject)) != MatchStatus.NO_MATCH
+        ]
+        obj_matches = [
+            (f, s) for f in neighborhood
+            if (s := fqn_matches_pattern(f, constraint.object)) != MatchStatus.NO_MATCH
+        ]
+
+        if not sub_matches or not obj_matches:
+            continue
+
+        tuples = [
+            (constraint, sf, of, ss if _PRIORITY[ss] >= _PRIORITY[os] else os)
+            for sf, ss in sub_matches
+            for of, os in obj_matches
+        ]
+
+        for changed in diff_result.changed_fqns:
+            all_violations.extend(
+                check_predicates(tuples, reachable, changed.fqn, changed.change_type)
+            )
+
+    violations = resolve(all_violations)
+    orphans = [c for c in adg.constraint_edges if id(c) not in active]
+
+    return CPTResult(violations=violations, orphans=orphans, neighborhood=neighborhood)
