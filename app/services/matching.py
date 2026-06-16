@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from enum import Enum
 from services.fqn import FQN
 from collections import Counter
-from services.models import FQNNode
+from services.models import FQNNode, ConstraintEdge
 
 SEGMENT_THRESHOLD = 0.9
 
@@ -16,6 +16,17 @@ class MatchStatus(Enum):
 class MatchResult:
     status: MatchStatus
     matched_fqns: list[FQN]
+
+def compute_specificity(edge: ConstraintEdge, match_status: MatchStatus, jaccard_score: float=0.0) -> float:
+    if match_status == MatchStatus.NO_MATCH:
+        return 0.0
+    
+    depth = len(edge.subject.rstrip(".").split("."))
+    if match_status == MatchStatus.EXACT:
+        return float(depth) + 1.0
+    if match_status == MatchStatus.SEGMENT:
+        return float(depth) + jaccard_score
+    return float(depth) # WILDCARD
 
 def _multiset_jaccard(a: Counter, b: Counter) -> float:
     intersection = sum(min(a[k], b[k]) for k in a.keys() & b.keys())

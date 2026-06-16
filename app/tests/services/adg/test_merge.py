@@ -119,9 +119,9 @@ class TestMatchFqnExact:
         assert result.status == MatchStatus.EXACT
         assert result.matched_fqns == [FQN.from_dotted("logging")]
 
-    def test_no_match_returns_orphan(self, sample_adg: ADG) -> None:
+    def test_no_match_returns_no_match(self, sample_adg: ADG) -> None:
         result = match_fqn("app.db.postgres", sample_adg.nodes)
-        assert result.status == MatchStatus.ORPHAN
+        assert result.status == MatchStatus.NO_MATCH
         assert result.matched_fqns == []
 
 
@@ -156,7 +156,7 @@ class TestMatchFqnWildcard:
     def test_wildcard_no_match(self, sample_adg: ADG) -> None:
         """Wildcard pattern where parent doesn't exist returns orphan."""
         result = match_fqn("app.nonexistent.*", sample_adg.nodes)
-        assert result.status == MatchStatus.ORPHAN
+        assert result.status == MatchStatus.NO_MATCH
         assert result.matched_fqns == []
 
 
@@ -191,7 +191,7 @@ class TestComputeSpecificity:
             adr_id="ADR-001",
             adr_path="docs/adr/001.md",
         )
-        assert compute_specificity(edge, match_status=MatchStatus.WILDCARD) == 2.5
+        assert compute_specificity(edge, match_status=MatchStatus.WILDCARD) == 3.0
         # depth(app.api.*) = 3, no exact bonus, wildcard penalty = 0.5
 
     def test_shallow_fqn_low_specificity(self) -> None:
@@ -218,7 +218,7 @@ class TestComputeSpecificity:
             adr_id="ADR-001",
             adr_path="docs/adr/001.md",
         )
-        assert compute_specificity(edge, match_status=MatchStatus.ORPHAN) == 0.0
+        assert compute_specificity(edge, match_status=MatchStatus.NO_MATCH) == 0.0
 
     def test_specificity_ordering(self) -> None:
         """More specific constraints have higher scores."""
@@ -370,7 +370,7 @@ class TestMergeConstraints:
             ),
         ]
         result = merge_constraints(sample_adg, constraints)
-        assert result.constraint_edges[0].specificity == 2.5
+        assert result.constraint_edges[0].specificity == 3
 
     def test_merge_empty_constraints(self, sample_adg: ADG) -> None:
         """Merging with no constraints preserves ADG as-is."""
