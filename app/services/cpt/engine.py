@@ -115,7 +115,7 @@ def check_predicates(
                 evidence = f"{subject_str} implements {object_str}"
 
         elif pred == PredicateType.REQUIRES_DEPENDENCY:
-            # ponytail: REQUIRES only fires for changed FQN and its ancestors, not siblings
+
             changed_str = str(changed_fqn)
             if subject_str != changed_str and not changed_str.startswith(subject_str + "."):
                 continue
@@ -146,7 +146,7 @@ def resolve(violations: list[Violation]) -> list[Violation]:
     deduped: list[Violation] = []
 
     for violation in violations:
-        # ponytail: dedup by constraint identity, not just ADR; same ADR can have conflicting constraints
+
         key = (violation.constraint.subject, violation.constraint.predicate, violation.constraint.object, str(violation.matched_fqn))
         if key not in seen:
             seen.add(key)
@@ -186,40 +186,52 @@ _PRIORITY = {MatchStatus.EXACT: 3, MatchStatus.WILDCARD: 2, MatchStatus.SEGMENT:
 
 def detect(diff_result: DiffResult, adg: ADG, k: int = 3) -> CPTResult:
     neighborhood, reachable = bfs_neighborhood(adg, diff_result.changed_fqns, k)
-    retrieved = retrieve_constraints(neighborhood, adg)
+    retrieved_constraint_edges = retrieve_constraints(neighborhood, adg)
 
-    # Unique constraints that matched at least one FQN in the neighborhood
     active: dict[int, ConstraintEdge] = {
-        id(rc.constraint): rc.constraint for rc in retrieved
+        id(constraint_edge.constraint): constraint_edge.constraint for constraint_edge in retrieved_constraint_edges
     }
 
     all_violations: list[Violation] = []
 
     for constraint in active.values():
-        sub_matches = [
-            (f, s) for f in neighborhood
-            if (s := fqn_matches_pattern(f, constraint.subject)) != MatchStatus.NO_MATCH
+        subject_matches = [
+            (fqn, status) for fqn in neighborhood
+            if (status := fqn_matches_pattern(fqn, constraint.subject)) != MatchStatus.NO_MATCH
         ]
-        obj_matches = [
-            (f, s) for f in neighborhood
-            if (s := fqn_matches_pattern(f, constraint.object)) != MatchStatus.NO_MATCH
+        object_matches = [
+            (fqn, status) for fqn in neighborhood
+            if (status := fqn_matches_pattern(fqn, constraint.object)) != MatchStatus.NO_MATCH
         ]
 
-        if not sub_matches or not obj_matches:
+        if not subject_matches or not object_matches:
             continue
 
-        tuples = [
-            (constraint, sf, of, ss if _PRIORITY[ss] >= _PRIORITY[os] else os)
-            for sf, ss in sub_matches
-            for of, os in obj_matches
+        constraint_tuples = [
+            (constraint, subject_fqn, object_fqn, subject_status if _PRIORITY[subject_status] >= _PRIORITY[object_status] else object_status)
+            for subject_fqn, subject_status in subject_matches
+            for object_fqn, object_status in object_matches
         ]
 
         for changed in diff_result.changed_fqns:
             all_violations.extend(
-                check_predicates(tuples, reachable, changed.fqn, changed.change_type)
+                check_predicates(constraint_tuples, reachable, changed.fqn, changed.change_type)
             )
 
     violations = resolve(all_violations)
-    orphans = [c for c in adg.constraint_edges if id(c) not in active]
+
+    active_requires = [constraint for constraint in active.values() if constraint.predicate.value.startswith("requires_")]
+    violations = [
+        violation for violation in violations
+        if not (
+            violation.constraint.predicate.value.startswith("prohibits_")
+            and any(
+                requires.object == violation.constraint.object and requires.specificity > violation.constraint.specificity
+                for requires in active_requires
+            )
+        )
+    ]
+
+    orphans = [constraint_edge for constraint_edge in adg.constraint_edges if id(constraint_edge) not in active]
 
     return CPTResult(violations=violations, orphans=orphans, neighborhood=neighborhood)
