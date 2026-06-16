@@ -115,3 +115,30 @@ def sample_user_model_trimmed_source() -> bytes:
 def sample_user_service_source() -> bytes:
     """Python source with a top-level function."""
     return b"from app.models.user import User\n\ndef get_user(user_id):\n    return User.find(user_id)\n"
+
+
+# ---------------------------------------------------------------------------
+# Neo4j store fixture (integration tests only)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def neo4j_store():
+    """Create a GraphStore connected to a test Neo4j database.
+
+    Uses the test-basic database (ports 7474/7687) from repos.yaml.
+    After the test, cleans up all nodes and edges.
+    """
+    from services.graph.connector import GraphStore
+
+    store = GraphStore(
+        uri="bolt://localhost:7687",
+        user="neo4j",
+        password="password",
+        database="neo4j",
+    )
+    store.connect()
+    store.create_schema()
+    yield store
+    store.clear_all()
+    store.close()

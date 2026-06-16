@@ -5,11 +5,14 @@ and logs results.
 """
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import langextract as lx
+
+log = logging.getLogger(__name__)
 
 from services.extract.config import LangExtractConfig
 from services.extract.io import parse_adr_id
@@ -32,6 +35,7 @@ class ADRExtractor:
         self, adr_text: str, adr_id: str, adr_path: str
     ) -> ExtractionResult:
         start = time.perf_counter()
+        log.info("extract_constraints: starting extraction for %s (%s)", adr_id, adr_path)
         extract_error: str | None = None
         raw_response: dict | None = None
 
@@ -69,6 +73,7 @@ class ADRExtractor:
                 }
         except Exception as exc:
             extract_error = str(exc)
+            log.error("extract_constraints: LLM call failed for %s: %s", adr_id, extract_error)
             return ExtractionResult(
                 errors=[ExtractionError(
                     message=extract_error,
@@ -83,21 +88,17 @@ class ADRExtractor:
         errors: list[ExtractionError] = []
         parsed_predicate_count = 0
 
-        for ext in result.extractions or []:
-            if ext.char_interval is None:
-                errors.append(ExtractionError(
-                    message=f"Extraction missing char_interval: {ext.extraction_text}",
-                    adr_path=adr_path,
-                    error_type="malformed_extraction",
-                ))
-                continue
+        extraction_count = len(result.extractions) if result.extractions else 0
+        log.info("extract_constraints: LLM returned %d raw extractions for %s", extraction_count, adr_id)
 
+        for ext in result.extractions or []:
             attrs = ext.attributes or {}
             pred_str = attrs.get("predicate", "")
             try:
                 predicate = PredicateType(pred_str)
                 parsed_predicate_count += 1
             except ValueError:
+                log.warning("extract_constraints: invalid predicate '%s' in %s", pred_str, adr_id)
                 errors.append(ExtractionError(
                     message=f"Invalid predicate '{pred_str}' in: {ext.extraction_text}",
                     adr_path=adr_path,
@@ -105,18 +106,27 @@ class ADRExtractor:
                 ))
                 continue
 
+            char_interval = None
+            if ext.char_interval is not None:
+                char_interval = (ext.char_interval.start_pos, ext.char_interval.end_pos)
+
             try:
                 edge = ConstraintEdge(
                     subject=attrs.get("subject", ""),
                     predicate=predicate,
                     object=attrs.get("object", ""),
                     justification=attrs.get("justification", ""),
-                    char_interval=(ext.char_interval.start_pos, ext.char_interval.end_pos),
+                    char_interval=char_interval,
                     adr_id=adr_id,
                     adr_path=adr_path,
                 )
                 constraints.append(edge)
+                log.info(
+                    "extract_constraints: parsed constraint [%s] '%s' -[%s]-> '%s'",
+                    adr_id, edge.subject, edge.predicate.value, edge.object,
+                )
             except ValueError as exc:
+                log.error("extract_constraints: malformed extraction for %s: %s", adr_id, exc)
                 errors.append(ExtractionError(
                     message=str(exc),
                     adr_path=adr_path,
@@ -141,6 +151,10 @@ class ADRExtractor:
             )
             write_log(entry, self.log_path)
 
+        log.info(
+            "extract_constraints: %s done in %.0fms: %d constraints, %d errors",
+            adr_id, duration_ms, len(constraints), len(errors),
+        )
         return ExtractionResult(constraints=constraints, errors=errors)
 
     def extract_from_file(self, adr_path: Path) -> ExtractionResult:
@@ -159,7 +173,7 @@ class ADRExtractor:
 
     def extract_from_directory(self, adr_dir: Path) -> list[ExtractionResult]:
         try:
-            adr_files = sorted(adr_dir.glob("ADR-*.md"))
+            adr_files = sorted(adr_dir.glob("*.md"))
         except OSError as exc:
             return [ExtractionResult(
                 errors=[ExtractionError(
