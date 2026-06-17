@@ -25,7 +25,7 @@ class FQNNode:
     end_byte: int = 0
 
 
-@dataclass
+@dataclass(frozen=True)
 class Edge:
     source: str
     target: str

@@ -3,71 +3,13 @@
 from __future__ import annotations
 
 import logging
-from enum import Enum
 
 from services.fqn import FQN
 from services.models import ADG, ConstraintEdge, FQNKind, FQNNode
+from services.matching import MatchResult, MatchStatus, compute_specificity, match_fqn
 from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
-
-class MatchStatus(Enum):
-    EXACT = "exact"
-    WILDCARD = "wildcard"
-    ORPHAN = "orphan"
-
-
-@dataclass
-class MatchResult:
-    status: MatchStatus
-    matched_fqns: list[FQN]
-
-def match_fqn(pattern: str, nodes: list[FQNNode]) -> MatchResult:
-    """
-    Resolve a constraint subject/object string to FQN nodes.
-    Layer matching: exact match first, then wildcard expansion, then orphan
-    """
-    known = {str(node.fqn) for node in nodes}
-
-    if pattern in known:
-        log.debug("match_fqn: EXACT match for '%s'", pattern)
-        return MatchResult(status=MatchStatus.EXACT, matched_fqns=[FQN.from_dotted(pattern)])
-
-    if pattern.endswith(".*"):
-        prefix = pattern[:-1]
-        exact_prefix = prefix.rstrip(".")
-        matches = []
-
-        for node in nodes:
-            node_name = str(node.fqn)
-
-            if node_name.startswith(prefix) and node_name != exact_prefix:
-                matches.append(node.fqn)
-
-        if matches:
-            log.info("match_fqn: WILDCARD '%s' expanded to %d nodes: %s", pattern, len(matches), [str(f) for f in matches])
-            return MatchResult(status=MatchStatus.WILDCARD, matched_fqns=sorted(matches, key=str))
-
-    log.warning("match_fqn: ORPHAN, no match for '%s'", pattern)
-    return MatchResult(status=MatchStatus.ORPHAN, matched_fqns=[])
-
-def compute_specificity(edge: ConstraintEdge, match_status: MatchStatus) -> float:
-    """
-    Compute specificity score: depth + exact bonus - wildcard penalty
-    specificity = depth(subject) + (1 if exact else 0) - 0.5 * wildcard_count(subject)
-    orphan got 0
-    """
-    if match_status == MatchStatus.ORPHAN:
-        log.debug("compute_specificity: ORPHAN edge '%s' -> 0.0", edge.subject)
-        return 0.0
-
-    subject = edge.subject
-    depth = len(subject.rstrip(".").split("."))
-    exact_bonus = 1.0 if match_status == MatchStatus.EXACT else 0.0
-    wildcard_penalty = 0.5 * subject.count("*")
-    score = float(depth) + exact_bonus - wildcard_penalty
-    log.debug("compute_specificity: '%s' depth=%d exact=%.1f wild_penalty=%.1f -> %.1f", subject, depth, exact_bonus, wildcard_penalty, score)
-    return score
 
 def add_external_nodes(adg: ADG) -> ADG:
     """Create EXTERNAL nodes for import targets not defined in the repo"""
@@ -119,9 +61,9 @@ def merge_constraints(adg: ADG, constraints: list[ConstraintEdge]) -> ADG:
             subject_specificity, constraint_edge.object, object_match.status.value,
         )
 
-        if subject_match.status == MatchStatus.ORPHAN:
+        if subject_match.status == MatchStatus.NO_MATCH:
             orphan_fqns.add(constraint_edge.subject)
-        if object_match.status == MatchStatus.ORPHAN:
+        if object_match.status == MatchStatus.NO_MATCH:
             orphan_fqns.add(constraint_edge.object)
 
         enriched_constraint_edges.append(ConstraintEdge(

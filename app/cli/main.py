@@ -15,6 +15,7 @@ from cli.config import load_config
 from services.adg import parse_repo
 from services.adg.merge import merge_constraints
 from services.cpt import GitAdapter, process_diff
+from services.cpt.engine import detect as cpt_detect
 from services.extract import extract_all_adrs
 from services.graph.connector import GraphStore
 from services.models import ConstraintEdge, DiffResult, FQNKind
@@ -65,6 +66,7 @@ def detect(
     commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
 ) -> None:
     """Run CPT violation detection on a repository."""
+    config = load_config()
     repo_cfg = _get_repo(repo)
     repo_path = _resolve_repo_path(repo_cfg)
     
@@ -85,12 +87,12 @@ def detect(
     # 2. Process the diff to idenity changed FQN
     result: DiffResult = process_diff(commit_diff)
 
-    # 3. Display result
+    # 3. Display diff result
     console.print()
     console.print(f"[bold]Commit:[/] {commit_diff.commit_sha[:6]}...")
     if commit_diff.parent_sha is not None:
         console.print(f"[bold]Parent:[/] {commit_diff.parent_sha[:6]}...")
-    
+
     if result.changed_files:
         file_table = Table(title="Changed Files", show_lines=True)
         file_table.add_column("Path", style="cyan")
@@ -107,7 +109,7 @@ def detect(
                 path_display = f"{file_changed.old_path} -> {file_changed.path}"
             file_table.add_row(path_display, f"[{status_style}]{file_changed.status}[/{status_style}]")
         console.print(file_table)
-    
+
     if result.changed_fqns:
         fqn_table = Table(title="Changed FQNs", show_lines=True)
         fqn_table.add_column("FQN", style="cyan")
@@ -131,6 +133,54 @@ def detect(
         console.print(fqn_table)
     else:
         console.print("[dim]No FQN changes detected.[/]")
+
+    # 4. Build ADG and run CPT detection
+    console.print()
+    console.print("[bold]Building ADG...[/]")
+    adg = parse_repo(repo_path)
+
+    console.print("[bold]Extracting ADR constraints...[/]")
+    all_constraints: list[ConstraintEdge] = []
+    for ext_result in extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract):
+        all_constraints.extend(ext_result.constraints)
+
+    merged = merge_constraints(adg, all_constraints)
+    console.print(f"  ADG: {len(merged.nodes)} nodes, {len(merged.edges)} edges, {len(merged.constraint_edges)} constraints")
+
+    # 5. Run CPT detect
+    cpt_result = cpt_detect(result, merged)
+
+    # 6. Display violations
+    if cpt_result.violations:
+        v_table = Table(title="Violations", show_lines=True)
+        v_table.add_column("ADR", style="cyan")
+        v_table.add_column("Predicate", style="bold red")
+        v_table.add_column("Subject", style="yellow")
+        v_table.add_column("Object", style="yellow")
+        v_table.add_column("Changed FQN", style="green")
+        v_table.add_column("Evidence", style="dim")
+        for v in cpt_result.violations:
+            v_table.add_row(
+                v.constraint.adr_id,
+                v.constraint.predicate.value,
+                v.constraint.subject,
+                v.constraint.object,
+                str(v.changed_fqn),
+                v.evidence,
+            )
+        console.print(v_table)
+    else:
+        console.print("[bold green]No violations found.[/]")
+
+    if cpt_result.orphans:
+        o_table = Table(title="Orphan Constraints (no neighborhood match)", show_lines=True)
+        o_table.add_column("ADR", style="cyan")
+        o_table.add_column("Predicate", style="dim")
+        o_table.add_column("Subject", style="dim")
+        o_table.add_column("Object", style="dim")
+        for c in cpt_result.orphans:
+            o_table.add_row(c.adr_id, c.predicate.value, c.subject, c.object)
+        console.print(o_table)
 
 
 @app.command()
