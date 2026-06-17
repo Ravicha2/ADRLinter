@@ -1,12 +1,13 @@
 """Tests for CPT engine: BFS traversal, constraint retrieval, predicate checking,
-basic resolution, and detect integration.
+and detect integration.
 
 Public interface under test:
     bfs_neighborhood: k-hop BFS from changed FQNs
     retrieve_constraints: FQN-first matching against constraint patterns
     check_predicates: evaluate constraints against structural facts
-    resolve: specificity conflict + dedup
     detect: full CPT pipeline
+
+Resolution logic tested separately in test_resolution.py.
 """
 
 from __future__ import annotations
@@ -313,7 +314,7 @@ class TestCheckPredicates:
     """Each PredicateType checked against reachable edges."""
 
     def test_prohibits_dependency_violated(self) -> None:
-        from services.cpt.engine import check_predicates
+        from services.cpt.engine import check_predicates, _build_adjacency
         from services.matching import MatchStatus
 
         constraint = ConstraintEdge(
@@ -324,12 +325,12 @@ class TestCheckPredicates:
             adr_id="ADR-003",
             adr_path="docs/adr/003.md",
         )
-        reachable_edges = {
+        adjacency = _build_adjacency({
             Edge(source="app.api.users", target="app.models.user", kind="IMPORTS"),
-        }
+        })
         violations = check_predicates(
             constraints_with_matches=[(constraint, FQN.from_dotted("app.api.users"), FQN.from_dotted("app.models.user"), MatchStatus.WILDCARD)],
-            reachable_edges=reachable_edges,
+            adjacency=adjacency,
             changed_fqn=FQN.from_dotted("app.api.users"),
             change_type="modified",
         )
@@ -337,7 +338,7 @@ class TestCheckPredicates:
         assert violations[0].constraint.adr_id == "ADR-003"
 
     def test_prohibits_dependency_not_violated(self) -> None:
-        from services.cpt.engine import check_predicates
+        from services.cpt.engine import check_predicates, _build_adjacency
         from services.matching import MatchStatus
 
         constraint = ConstraintEdge(
@@ -348,19 +349,19 @@ class TestCheckPredicates:
             adr_id="ADR-003",
             adr_path="docs/adr/003.md",
         )
-        reachable_edges = {
+        adjacency = _build_adjacency({
             Edge(source="app.api.users", target="app.auth.middleware", kind="IMPORTS"),
-        }
+        })
         violations = check_predicates(
             constraints_with_matches=[(constraint, FQN.from_dotted("app.api.users"), FQN.from_dotted("app.models.user"), MatchStatus.WILDCARD)],
-            reachable_edges=reachable_edges,
+            adjacency=adjacency,
             changed_fqn=FQN.from_dotted("app.api.users"),
             change_type="modified",
         )
         assert len(violations) == 0
 
     def test_requires_dependency_violated(self) -> None:
-        from services.cpt.engine import check_predicates
+        from services.cpt.engine import check_predicates, _build_adjacency
         from services.matching import MatchStatus
 
         constraint = ConstraintEdge(
@@ -371,10 +372,10 @@ class TestCheckPredicates:
             adr_id="ADR-004",
             adr_path="docs/adr/004.md",
         )
-        reachable_edges: set[Edge] = set()
+        adjacency = _build_adjacency(set())
         violations = check_predicates(
             constraints_with_matches=[(constraint, FQN.from_dotted("app.api.orders"), FQN.from_dotted("app.auth.middleware"), MatchStatus.WILDCARD)],
-            reachable_edges=reachable_edges,
+            adjacency=adjacency,
             changed_fqn=FQN.from_dotted("app.api.orders"),
             change_type="modified",
         )
@@ -382,7 +383,7 @@ class TestCheckPredicates:
         assert violations[0].constraint.adr_id == "ADR-004"
 
     def test_requires_dependency_not_violated(self) -> None:
-        from services.cpt.engine import check_predicates
+        from services.cpt.engine import check_predicates, _build_adjacency
         from services.matching import MatchStatus
 
         constraint = ConstraintEdge(
@@ -393,19 +394,19 @@ class TestCheckPredicates:
             adr_id="ADR-004",
             adr_path="docs/adr/004.md",
         )
-        reachable_edges = {
+        adjacency = _build_adjacency({
             Edge(source="app.api.users", target="app.auth.middleware", kind="IMPORTS"),
-        }
+        })
         violations = check_predicates(
             constraints_with_matches=[(constraint, FQN.from_dotted("app.api.users"), FQN.from_dotted("app.auth.middleware"), MatchStatus.WILDCARD)],
-            reachable_edges=reachable_edges,
+            adjacency=adjacency,
             changed_fqn=FQN.from_dotted("app.api.users"),
             change_type="modified",
         )
         assert len(violations) == 0
 
     def test_prohibits_implementation_violated(self) -> None:
-        from services.cpt.engine import check_predicates
+        from services.cpt.engine import check_predicates, _build_adjacency
         from services.matching import MatchStatus
 
         constraint = ConstraintEdge(
@@ -416,19 +417,19 @@ class TestCheckPredicates:
             adr_id="ADR-005",
             adr_path="docs/adr/005.md",
         )
-        reachable_edges = {
+        adjacency = _build_adjacency({
             Edge(source="app.api", target="app.auth.middleware", kind="CONTAINS"),
-        }
+        })
         violations = check_predicates(
             constraints_with_matches=[(constraint, FQN.from_dotted("app.api"), FQN.from_dotted("app.auth.middleware"), MatchStatus.WILDCARD)],
-            reachable_edges=reachable_edges,
+            adjacency=adjacency,
             changed_fqn=FQN.from_dotted("app.api"),
             change_type="modified",
         )
         assert len(violations) == 1
 
     def test_requires_implementation_violated(self) -> None:
-        from services.cpt.engine import check_predicates
+        from services.cpt.engine import check_predicates, _build_adjacency
         from services.matching import MatchStatus
 
         constraint = ConstraintEdge(
@@ -439,17 +440,17 @@ class TestCheckPredicates:
             adr_id="ADR-005",
             adr_path="docs/adr/005.md",
         )
-        reachable_edges: set[Edge] = set()
+        adjacency = _build_adjacency(set())
         violations = check_predicates(
             constraints_with_matches=[(constraint, FQN.from_dotted("app.middleware"), FQN.from_dotted("app.auth.middleware"), MatchStatus.EXACT)],
-            reachable_edges=reachable_edges,
+            adjacency=adjacency,
             changed_fqn=FQN.from_dotted("app.middleware"),
             change_type="modified",
         )
         assert len(violations) == 1
 
     def test_requires_implementation_not_violated(self) -> None:
-        from services.cpt.engine import check_predicates
+        from services.cpt.engine import check_predicates, _build_adjacency
         from services.matching import MatchStatus
 
         constraint = ConstraintEdge(
@@ -460,13 +461,13 @@ class TestCheckPredicates:
             adr_id="ADR-005",
             adr_path="docs/adr/005.md",
         )
-        reachable_edges = {
+        adjacency = _build_adjacency({
             Edge(source="app.middleware", target="app.middleware.auth", kind="CONTAINS"),
             Edge(source="app.middleware.auth", target="app.auth.middleware", kind="CALLS"),
-        }
+        })
         violations = check_predicates(
             constraints_with_matches=[(constraint, FQN.from_dotted("app.middleware"), FQN.from_dotted("app.auth.middleware"), MatchStatus.EXACT)],
-            reachable_edges=reachable_edges,
+            adjacency=adjacency,
             changed_fqn=FQN.from_dotted("app.middleware"),
             change_type="modified",
         )
@@ -479,7 +480,8 @@ class TestCheckPredicates:
 
 
 class TestResolve:
-    """Basic resolution: specificity conflicts and deduplication."""
+    """Basic resolution: specificity conflicts and deduplication.
+    Imports from resolution module; kept here for backward compatibility."""
 
     def _make_violation(
         self,
@@ -512,7 +514,7 @@ class TestResolve:
         )
 
     def test_specificity_higher_wins(self) -> None:
-        from services.cpt.engine import resolve
+        from services.cpt.resolution import resolve
 
         # app.* PROHIBITS_IMPLEMENTATION app.auth (low specificity)
         # app.middleware REQUIRES_IMPLEMENTATION app.auth (high specificity)
@@ -531,7 +533,7 @@ class TestResolve:
         assert PredicateType.PROHIBITS_IMPLEMENTATION not in result_predicates
 
     def test_dedup_same_constraint_same_matched_fqn(self) -> None:
-        from services.cpt.engine import resolve
+        from services.cpt.resolution import resolve
 
         v1 = self._make_violation(
             "app.api.*", PredicateType.PROHIBITS_DEPENDENCY, "app.models.*",
@@ -546,7 +548,7 @@ class TestResolve:
         assert len(result) == 1
 
     def test_different_matched_fqns_not_deduped(self) -> None:
-        from services.cpt.engine import resolve
+        from services.cpt.resolution import resolve
 
         v1 = self._make_violation(
             "app.api.*", PredicateType.PROHIBITS_DEPENDENCY, "app.models.*",
@@ -561,7 +563,7 @@ class TestResolve:
         assert len(result) == 2
 
     def test_no_conflict_passes_through(self) -> None:
-        from services.cpt.engine import resolve
+        from services.cpt.resolution import resolve
 
         v1 = self._make_violation(
             "app.api.*", PredicateType.PROHIBITS_DEPENDENCY, "app.models.*",

@@ -4,17 +4,11 @@ from dataclasses import dataclass, field
 
 from services.fqn import FQN
 from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, PredicateType
+from services.cpt.resolution import Violation, resolve, suppress_outweighed_prohibits
 from services.matching import MatchStatus, fqn_matches_pattern
-from collections import deque
+from collections import deque, defaultdict
 
-@dataclass
-class Violation:
-    constraint: ConstraintEdge
-    changed_fqn: FQN
-    matched_fqn: FQN
-    match_status: MatchStatus
-    evidence: str
-    change_type: str
+_PRIORITY = {MatchStatus.EXACT: 3, MatchStatus.WILDCARD: 2, MatchStatus.SEGMENT: 1}
 
 @dataclass
 class CPTResult:
@@ -29,22 +23,28 @@ class RetrievedConstraint:
     match_status: MatchStatus
     
 
-def _reachable(start:str, target:str, edges: set[Edge], kinds: set[str]) -> bool:
-    visited: set[str] = set()
-    queue = deque([start])
+def _build_adjacency(edges: set[Edge]) -> dict[str, list[Edge]]:
+    adjacency: dict[str, list[Edge]] = defaultdict(list)
+    for edge in edges:
+        adjacency[edge.source].append(edge)
+    return adjacency
+
+
+def _reachable(start: str, target: str, adjacency: dict[str, list[Edge]], kinds: set[str]) -> bool:
+    visited: set[str] = {start}
+    queue: deque[str] = deque([start])
+
     while queue:
         current = queue.popleft()
-        if current == target and current != start:
-            return True
-        if current in visited:
-            continue
-        visited.add(current)
-        for edge in edges:
-            if edge.source == current and edge.kind in kinds and edge.target not in visited:
+        for edge in adjacency.get(current, ()):
+            if edge.kind not in kinds:
+                continue
+            if edge.target == target:
+                return True
+            if edge.target not in visited:
+                visited.add(edge.target)
                 queue.append(edge.target)
-                if edge.target == target:
-                    return True
-    
+
     return False
 
 
@@ -92,7 +92,7 @@ def retrieve_constraints(neighborhood: set[FQN], adg: ADG) -> list[RetrievedCons
 
 def check_predicates(
     constraints_with_matches: list[tuple[ConstraintEdge, FQN, FQN, MatchStatus]],
-    reachable_edges: set[Edge],
+    adjacency: dict[str, list[Edge]],
     changed_fqn: FQN,
     change_type: str,
 )-> list[Violation]:
@@ -105,21 +105,20 @@ def check_predicates(
         evidence = ""
 
         if pred == PredicateType.PROHIBITS_DEPENDENCY:
-            if _reachable(subject_str, object_str, reachable_edges, {"IMPORTS", "CALLS", "INHERITS"}):
+            if _reachable(subject_str, object_str, adjacency, {"IMPORTS", "CALLS", "INHERITS"}):
                 violated = True
                 evidence = f"{subject_str} has dependency path to {object_str}"
 
         elif pred == PredicateType.PROHIBITS_IMPLEMENTATION:
-            if _reachable(subject_str, object_str, reachable_edges, {"CONTAINS", "CALLS"}):
+            if _reachable(subject_str, object_str, adjacency, {"CONTAINS", "CALLS"}):
                 violated = True
                 evidence = f"{subject_str} implements {object_str}"
 
         elif pred == PredicateType.REQUIRES_DEPENDENCY:
-
             changed_str = str(changed_fqn)
             if subject_str != changed_str and not changed_str.startswith(subject_str + "."):
                 continue
-            if not _reachable(subject_str, object_str, reachable_edges, {"IMPORTS", "CALLS", "INHERITS"}):
+            if not _reachable(subject_str, object_str, adjacency, {"IMPORTS", "CALLS", "INHERITS"}):
                 violated = True
                 evidence = f"{subject_str} has no dependency on {object_str}"
 
@@ -127,7 +126,7 @@ def check_predicates(
             changed_str = str(changed_fqn)
             if subject_str != changed_str and not changed_str.startswith(subject_str + "."):
                 continue
-            if not _reachable(subject_str, object_str, reachable_edges, {"CONTAINS", "CALLS"}):
+            if not _reachable(subject_str, object_str, adjacency, {"CONTAINS", "CALLS"}):
                 violated = True
                 evidence = f"{subject_str} does not implement {object_str}"
         if violated:
@@ -141,97 +140,94 @@ def check_predicates(
             ))
     return violations
 
-def resolve(violations: list[Violation]) -> list[Violation]:
-    seen: set[tuple[str, str]] = set()
-    deduped: list[Violation] = []
-
-    for violation in violations:
-
-        key = (violation.constraint.subject, violation.constraint.predicate, violation.constraint.object, str(violation.matched_fqn))
-        if key not in seen:
-            seen.add(key)
-            deduped.append(violation)
-    
-    suppress: set[int] = set()
-
-    for i, violation_i in enumerate(deduped):
-        for j, violation_j in enumerate(deduped):
-            if i == j or i in suppress or j in suppress:
-                continue
-            
-            if violation_i.constraint.object != violation_j.constraint.object:
-                continue
-
-            violation_i_prohibit = violation_i.constraint.predicate.value.startswith("prohibits_")
-            violation_i_require = violation_i.constraint.predicate.value.startswith("requires_")
-            violation_j_prohibit = violation_j.constraint.predicate.value.startswith("prohibits_")
-            violation_j_require = violation_j.constraint.predicate.value.startswith("requires_")
-
-            if violation_i_prohibit and violation_j_require:
-                if violation_j.constraint.specificity > violation_i.constraint.specificity:
-                    suppress.add(i)
-                elif violation_i.constraint.specificity > violation_j.constraint.specificity:
-                    suppress.add(j)
-            
-            elif violation_i_require and violation_j_prohibit:
-                if violation_i.constraint.specificity > violation_j.constraint.specificity:
-                    suppress.add(j)
-                elif violation_j.constraint.specificity > violation_i.constraint.specificity:
-                    suppress.add(i)
-
-    return [violation for i, violation in enumerate(deduped) if i not in suppress]
-
-_PRIORITY = {MatchStatus.EXACT: 3, MatchStatus.WILDCARD: 2, MatchStatus.SEGMENT: 1}
-
-
 def detect(diff_result: DiffResult, adg: ADG, k: int = 3) -> CPTResult:
     neighborhood, reachable = bfs_neighborhood(adg, diff_result.changed_fqns, k)
+    adjacency = _build_adjacency(reachable)
     retrieved_constraint_edges = retrieve_constraints(neighborhood, adg)
 
-    active: dict[int, ConstraintEdge] = {
-        id(constraint_edge.constraint): constraint_edge.constraint for constraint_edge in retrieved_constraint_edges
-    }
+    active: dict[int, ConstraintEdge] = {}
+    for constraint_edge in retrieved_constraint_edges:
+        active[id(constraint_edge.constraint)] = constraint_edge.constraint
 
     all_violations: list[Violation] = []
 
     for constraint in active.values():
-        subject_matches = [
-            (fqn, status) for fqn in neighborhood
-            if (status := fqn_matches_pattern(fqn, constraint.subject)) != MatchStatus.NO_MATCH
-        ]
-        object_matches = [
-            (fqn, status) for fqn in neighborhood
-            if (status := fqn_matches_pattern(fqn, constraint.object)) != MatchStatus.NO_MATCH
-        ]
+        subject_matches: list[tuple[FQN, MatchStatus]] = []
+        for fqn in neighborhood:
+            status = fqn_matches_pattern(fqn, constraint.subject)
+            if status != MatchStatus.NO_MATCH:
+                subject_matches.append((fqn, status))
+
+        object_matches: list[tuple[FQN, MatchStatus]] = []
+        for fqn in neighborhood:
+            status = fqn_matches_pattern(fqn, constraint.object)
+            if status != MatchStatus.NO_MATCH:
+                object_matches.append((fqn, status))
 
         if not subject_matches or not object_matches:
             continue
 
-        constraint_tuples = [
-            (constraint, subject_fqn, object_fqn, subject_status if _PRIORITY[subject_status] >= _PRIORITY[object_status] else object_status)
-            for subject_fqn, subject_status in subject_matches
-            for object_fqn, object_status in object_matches
-        ]
+        constraint_tuples: list[tuple[ConstraintEdge, FQN, FQN, MatchStatus]] = []
+        for subject_fqn, subject_status in subject_matches:
+            for object_fqn, object_status in object_matches:
+                higher_status = subject_status if _PRIORITY[subject_status] >= _PRIORITY[object_status] else object_status
+                constraint_tuples.append((constraint, subject_fqn, object_fqn, higher_status))
 
         for changed in diff_result.changed_fqns:
             all_violations.extend(
-                check_predicates(constraint_tuples, reachable, changed.fqn, changed.change_type)
+                check_predicates(constraint_tuples, adjacency, changed.fqn, changed.change_type)
             )
 
     violations = resolve(all_violations)
 
-    active_requires = [constraint for constraint in active.values() if constraint.predicate.value.startswith("requires_")]
-    violations = [
-        violation for violation in violations
-        if not (
-            violation.constraint.predicate.value.startswith("prohibits_")
-            and any(
-                requires.object == violation.constraint.object and requires.specificity > violation.constraint.specificity
-                for requires in active_requires
-            )
-        )
-    ]
+    active_requires: list[ConstraintEdge] = []
+    for constraint in active.values():
+        if constraint.predicate.value.startswith("requires_"):
+            active_requires.append(constraint)
+    violations = suppress_outweighed_prohibits(violations, active_requires)
 
-    orphans = [constraint_edge for constraint_edge in adg.constraint_edges if id(constraint_edge) not in active]
+    orphans: list[ConstraintEdge] = []
+    for constraint_edge in adg.constraint_edges:
+        if id(constraint_edge) not in active:
+            orphans.append(constraint_edge)
 
     return CPTResult(violations=violations, orphans=orphans, neighborhood=neighborhood)
+
+
+if __name__ == "__main__":
+    from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, PredicateType
+
+    adg = ADG(
+        nodes=[],
+        edges=[
+            Edge(source="app.service.UserService", target="app.repo.UserRepo", kind="CALLS"),
+            Edge(source="app.service.UserService", target="app.repo.UserRepo", kind="IMPORTS"),
+        ],
+        constraint_edges=[
+            ConstraintEdge(
+                subject="app.service.*",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object="app.repo.*",
+                justification="Services must not depend on repositories directly",
+                adr_id="ADR-001",
+                adr_path="docs/adr/001.md",
+            ),
+        ],
+    )
+
+    diff = DiffResult(
+        commit_sha="abc123",
+        changed_fqns=[
+            ChangedFQN(
+                fqn=FQN.from_dotted_safe("app.service.UserService"),
+                change_type="modified",
+                file_path="app/service.py",
+                enclosing_module=FQN.from_dotted_safe("app.service"),
+            ),
+        ],
+    )
+
+    result = detect(diff, adg)
+    for v in result.violations:
+        print(f"  {v.constraint.predicate.value}: {v.evidence}")
+    print(f"Neighborhood: {result.neighborhood}")
