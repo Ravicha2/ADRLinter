@@ -617,6 +617,7 @@ class TestResolve:
         assert len(result) == 1
 
     def test_different_matched_fqns_not_deduped(self) -> None:
+        """Sibling FQNs (not parent-child) stay separate."""
         from services.cpt.resolution import resolve
 
         v1 = self._make_violation(
@@ -629,6 +630,49 @@ class TestResolve:
         )
         result = resolve([v1, v2])
         assert len(result) == 2
+
+    def test_module_level_dedup_parent_covers_child(self) -> None:
+        """Parent FQN violation covers child FQN for same constraint."""
+        from services.cpt.resolution import resolve
+
+        v1 = self._make_violation(
+            "app.api.*", PredicateType.PROHIBITS_DEPENDENCY, "app.models.*",
+            specificity=2.5, matched_fqn="app.api.users",
+        )
+        v2 = self._make_violation(
+            "app.api.*", PredicateType.PROHIBITS_DEPENDENCY, "app.models.*",
+            specificity=2.5, matched_fqn="app.api.users.UserListResource",
+        )
+        result = resolve([v1, v2])
+        assert len(result) == 1
+        assert str(result[0].matched_fqn) == "app.api.users"
+
+    def test_module_level_dedup_keeps_child_if_parent_absent(self) -> None:
+        """Child violation is kept when parent has no violation for that constraint."""
+        from services.cpt.resolution import resolve
+
+        v1 = self._make_violation(
+            "app.api.*", PredicateType.PROHIBITS_DEPENDENCY, "app.models.*",
+            specificity=2.5, matched_fqn="app.api.users.UserListResource",
+        )
+        result = resolve([v1])
+        assert len(result) == 1
+        assert str(result[0].matched_fqn) == "app.api.users.UserListResource"
+
+    def test_module_level_dedup_grandchild_covered(self) -> None:
+        """Grandchild is covered by grandparent violation."""
+        from services.cpt.resolution import resolve
+
+        v1 = self._make_violation(
+            "app.api.*", PredicateType.PROHIBITS_DEPENDENCY, "app.models.*",
+            specificity=2.5, matched_fqn="app.api.users",
+        )
+        v2 = self._make_violation(
+            "app.api.*", PredicateType.PROHIBITS_DEPENDENCY, "app.models.*",
+            specificity=2.5, matched_fqn="app.api.users.UserListResource.get",
+        )
+        result = resolve([v1, v2])
+        assert len(result) == 1
 
     def test_no_conflict_passes_through(self) -> None:
         from services.cpt.resolution import resolve

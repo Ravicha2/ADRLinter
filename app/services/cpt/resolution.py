@@ -28,6 +28,25 @@ def resolve(violations: list[Violation]) -> list[Violation]:
             seen.add(key)
             deduped.append(violation)
 
+    # Module-level dedup: parent matched_fqn covers child for same constraint
+    # O(n²) per constraint group, fine for typical violation counts
+    by_constraint: dict[tuple, list[int]] = {}
+    for i, v in enumerate(deduped):
+        ck = (v.constraint.subject, v.constraint.predicate, v.constraint.object)
+        by_constraint.setdefault(ck, []).append(i)
+
+    to_remove: set[int] = set()
+    for indices in by_constraint.values():
+        for i in indices:
+            if i in to_remove:
+                continue
+            i_prefix = str(deduped[i].matched_fqn) + "."
+            for j in indices:
+                if j != i and j not in to_remove and str(deduped[j].matched_fqn).startswith(i_prefix):
+                    to_remove.add(j)
+
+    deduped = [v for i, v in enumerate(deduped) if i not in to_remove]
+
     suppress: set[int] = set()
 
     for i, violation_i in enumerate(deduped):
