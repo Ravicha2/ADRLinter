@@ -38,4 +38,5 @@ dev = [
 [tool.pytest.ini_options]
 markers = [
     "integration: marks tests as integration tests",
+    "llm_eval: marks tests that call the real LLM (costly, non-deterministic)",
 ]

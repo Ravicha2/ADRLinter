@@ -286,26 +286,6 @@ class TestMatchConstraints:
         matched = match_constraints(neighborhood, adg)
         assert len(matched) == 0
 
-    def test_segment_match_retrieves_constraint(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood, match_constraints
-
-        constraints = [
-            ConstraintEdge(
-                subject="app.middleware.auth",
-                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                object="app.auth",
-                justification="test",
-                adr_id="ADR-010",
-                adr_path="docs/adr/010.md",
-            ),
-        ]
-        adg = ADG(nodes=sample_adg.nodes, edges=sample_adg.edges, constraint_edges=constraints)
-        # k=3 so app.auth (object) is in neighborhood
-        changed = [_changed_fqn("app.middleware.auth")]
-        neighborhood, _ = bfs_neighborhood(adg, changed, k=3)
-        matched = match_constraints(neighborhood, adg)
-        assert any(mc.constraint.adr_id == "ADR-010" for mc in matched.values())
-
     def test_constraint_with_empty_subject_bucket_is_orphan(self, sample_adg: ADG) -> None:
         from services.cpt.engine import match_constraints
 

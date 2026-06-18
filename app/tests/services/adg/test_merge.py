@@ -5,11 +5,14 @@ Public interface under test:
     compute_specificity: compute specificity score for a constraint edge
     merge_constraints: unify Track A ADG + Track B constraint edges into merged ADG
     add_external_nodes: create EXTERNAL nodes for unmatched import targets
+    resolve_orphans: LLM-backed naming resolution for orphan FQN patterns
+    gather_candidates: collect ADG nodes as resolution candidates via prefix-scoped walk
 """
 
 from __future__ import annotations
 
 import pytest
+from unittest.mock import MagicMock, patch
 
 from services.fqn import FQN
 from services.models import (
@@ -135,7 +138,7 @@ class TestMatchFqnWildcard:
         assert matched == [FQN.from_dotted("app.api.orders"), FQN.from_dotted("app.api.users")]
 
     def test_wildcard_on_leaf_module(self, sample_adg: ADG) -> None:
-        """Wildcard on a module with no children returns empty match."""
+        """Wildcard on a module with one child matches that child."""
         result = match_fqn("app.auth.*", sample_adg.nodes)
         assert result.status == MatchStatus.WILDCARD
         # app.auth has one child: app.auth.middleware
@@ -166,7 +169,7 @@ class TestMatchFqnWildcard:
 
 
 class TestComputeSpecificity:
-    """Specificity = depth + exact bonus - wildcard penalty."""
+    """Specificity: EXACT = depth+1, WILDCARD = depth, NO_MATCH = 0.0."""
 
     def test_exact_fqn_high_specificity(self) -> None:
         edge = ConstraintEdge(
@@ -179,9 +182,9 @@ class TestComputeSpecificity:
             adr_path="docs/adr/001.md",
         )
         assert compute_specificity(edge, match_status=MatchStatus.EXACT) == 4.0
-        # depth(app.api.users) = 3, exact bonus = 1, wildcard penalty = 0
+        # depth(app.api.users) = 3, exact bonus = 1
 
-    def test_wildcard_lower_specificity(self) -> None:
+    def test_wildcard_specificity(self) -> None:
         edge = ConstraintEdge(
             subject="app.api.*",
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
@@ -192,7 +195,7 @@ class TestComputeSpecificity:
             adr_path="docs/adr/001.md",
         )
         assert compute_specificity(edge, match_status=MatchStatus.WILDCARD) == 3.0
-        # depth(app.api.*) = 3, no exact bonus, wildcard penalty = 0.5
+        # depth(app.api.*) = 3, wildcard = depth only
 
     def test_shallow_fqn_low_specificity(self) -> None:
         edge = ConstraintEdge(
@@ -205,7 +208,7 @@ class TestComputeSpecificity:
             adr_path="docs/adr/001.md",
         )
         assert compute_specificity(edge, match_status=MatchStatus.EXACT) == 2.0
-        # depth(app) = 1, exact bonus = 1, wildcard penalty = 0
+        # depth(app) = 1, exact bonus = 1
 
     def test_orphan_specificity(self) -> None:
         """Orphan constraints get specificity 0 (no match to measure depth from)."""
@@ -221,7 +224,7 @@ class TestComputeSpecificity:
         assert compute_specificity(edge, match_status=MatchStatus.NO_MATCH) == 0.0
 
     def test_specificity_ordering(self) -> None:
-        """More specific constraints have higher scores."""
+        """More specific constraints have higher scores: 4.0 > 3.0 > 2.0."""
         exact = ConstraintEdge(
             subject="app.api.users",
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
@@ -251,7 +254,7 @@ class TestComputeSpecificity:
         )
         assert compute_specificity(exact, MatchStatus.EXACT) > compute_specificity(wildcard, MatchStatus.WILDCARD)
         assert compute_specificity(wildcard, MatchStatus.WILDCARD) > compute_specificity(shallow, MatchStatus.EXACT)
-        # 4.0 > 2.5 > 2.0
+        # 4.0 > 3.0 > 2.0
 
 
 # ===========================================================================
@@ -264,7 +267,6 @@ class TestAddExternalNodes:
 
     def test_adds_external_for_stdlib(self, sample_adg: ADG) -> None:
         """Standard library modules imported but not defined in repo become EXTERNAL."""
-        # Add an IMPORTS edge to 'logging' which is not in sample_adg.nodes
         edges_with_import = sample_adg.edges + [
             Edge(source="app.services.user", target="logging", kind="IMPORTS"),
         ]
@@ -370,7 +372,7 @@ class TestMergeConstraints:
             ),
         ]
         result = merge_constraints(sample_adg, constraints)
-        assert result.constraint_edges[0].specificity == 3
+        assert result.constraint_edges[0].specificity == 3.0
 
     def test_merge_empty_constraints(self, sample_adg: ADG) -> None:
         """Merging with no constraints preserves ADG as-is."""
@@ -575,6 +577,333 @@ class TestConstraintEdgeSpecificity:
             char_interval=(0, 10),
             adr_id="ADR-001",
             adr_path="docs/adr/001.md",
-            specificity=2.5,
+            specificity=3.0,
         )
-        assert edge.specificity == 2.5
+        assert edge.specificity == 3.0
+
+
+# ===========================================================================
+# 8. gather_candidates: prefix-scoped walk of ADG nodes
+# ===========================================================================
+
+
+class TestGatherCandidates:
+    """Collect ADG nodes as resolution candidates via prefix-scoped walk.
+
+    Algorithm: walk pattern segments against ADG nodes until first mismatch.
+    Collect all descendants of the longest matching prefix.
+    If no segments match, all top-level nodes and their descendants are candidates.
+    """
+
+    def test_candidates_from_partial_prefix_match(self, sample_adg: ADG) -> None:
+        """Pattern 'app.api.*': 'app' matches, 'api' matches -> candidates under 'app.api.*'."""
+        from services.adg.merge import gather_candidates
+
+        candidates = gather_candidates("app.api.*", sample_adg.nodes)
+        # Longest matching prefix: "app.api" matches node app.api
+        # Candidates: all nodes whose FQN starts with "app.api."
+        candidate_fqns = {str(c.fqn) for c in candidates}
+        assert "app.api" in candidate_fqns
+        assert "app.api.users" in candidate_fqns
+        assert "app.api.orders" in candidate_fqns
+        # app.auth is NOT under app.api
+        assert "app.auth" not in candidate_fqns
+
+    def test_candidates_from_first_segment_mismatch(self, sample_adg: ADG) -> None:
+        """Pattern 'web.handlers.*': 'web' doesn't match any node -> all nodes as candidates."""
+        from services.adg.merge import gather_candidates
+
+        candidates = gather_candidates("web.handlers.*", sample_adg.nodes)
+        # No prefix match at all -> all nodes as candidates (root-level fallback)
+        candidate_fqns = {str(c.fqn) for c in candidates}
+        assert len(candidates) == len(sample_adg.nodes)
+
+    def test_candidates_from_middle_mismatch(self, sample_adg: ADG) -> None:
+        """Pattern 'app.routes.*': 'app' matches, 'routes' doesn't -> candidates under 'app'."""
+        from services.adg.merge import gather_candidates
+
+        candidates = gather_candidates("app.routes.*", sample_adg.nodes)
+        # 'app' matches, 'routes' doesn't -> collect all nodes under 'app.*'
+        candidate_fqns = {str(c.fqn) for c in candidates}
+        assert "app" in candidate_fqns
+        assert "app.api" in candidate_fqns
+        assert "app.auth" in candidate_fqns
+        assert "app.services" in candidate_fqns
+
+    def test_candidates_exact_match_no_orphan(self, sample_adg: ADG) -> None:
+        """Pattern that matches exactly returns empty candidates (no resolution needed)."""
+        from services.adg.merge import gather_candidates
+
+        candidates = gather_candidates("app.auth.middleware", sample_adg.nodes)
+        # Exact match -> no orphan -> no candidates needed
+        assert candidates == []
+
+    def test_candidates_wildcard_exact_prefix_match(self, sample_adg: ADG) -> None:
+        """Pattern 'app.auth.*': 'app.auth' matches -> candidates under 'app.auth'."""
+        from services.adg.merge import gather_candidates
+
+        candidates = gather_candidates("app.auth.*", sample_adg.nodes)
+        candidate_fqns = {str(c.fqn) for c in candidates}
+        assert "app.auth" in candidate_fqns
+        assert "app.auth.middleware" in candidate_fqns
+
+    def test_candidates_empty_adg(self) -> None:
+        """Empty ADG returns empty candidates."""
+        from services.adg.merge import gather_candidates
+
+        candidates = gather_candidates("app.api.*", [])
+        assert candidates == []
+
+
+# ===========================================================================
+# 9. resolve_orphans: LLM-backed naming resolution
+# ===========================================================================
+
+
+class TestResolveOrphans:
+    """LLM-backed resolution of orphan FQN patterns.
+
+    When an FQN pattern from an ADR doesn't match any ADG node (orphan),
+    resolve_orphans gathers candidates, calls the LLM, and remaps the pattern
+    in-place. Modifies constraints directly. Returns remaining orphan FQNs.
+    """
+
+    @pytest.fixture
+    def routes_adg(self) -> ADG:
+        """ADG using 'routes' instead of 'api' (the naming mismatch scenario)."""
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+            FQNNode(fqn=FQN.from_dotted("app.routes"), kind=FQNKind.MODULE, file_path="app/routes/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+            FQNNode(fqn=FQN.from_dotted("app.routes.users"), kind=FQNKind.MODULE, file_path="app/routes/users.py", line_start=0, line_end=50, start_byte=0, end_byte=0),
+            FQNNode(fqn=FQN.from_dotted("app.auth"), kind=FQNKind.MODULE, file_path="app/auth/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+            FQNNode(fqn=FQN.from_dotted("app.auth.middleware"), kind=FQNKind.MODULE, file_path="app/auth/middleware.py", line_start=0, line_end=60, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="app.routes", kind="CONTAINS"),
+            Edge(source="app.routes", target="app.routes.users", kind="CONTAINS"),
+            Edge(source="app", target="app.auth", kind="CONTAINS"),
+            Edge(source="app.auth", target="app.auth.middleware", kind="CONTAINS"),
+            Edge(source="app.routes.users", target="app.auth.middleware", kind="IMPORTS"),
+        ]
+        return ADG(nodes=nodes, edges=edges)
+
+    def test_resolve_remaps_orphan_subject(self, routes_adg: ADG) -> None:
+        """LLM remaps orphan subject 'app.api.*' to 'app.routes.*'."""
+        from services.adg.merge import resolve_orphans
+        from services.extract.config import LangExtractConfig
+
+        config = LangExtractConfig(model_id="test-model", provider="openai")
+
+        constraints = [
+            ConstraintEdge(
+                subject="app.api.*",
+                predicate=PredicateType.REQUIRES_DEPENDENCY,
+                object="app.auth.middleware",
+                justification="All API endpoints must import auth middleware.",
+                char_interval=(10, 80),
+                adr_id="ADR-002",
+                adr_path="docs/adr/002.md",
+            ),
+        ]
+
+        mock_response = MagicMock()
+        mock_response.choices = [MagicMock()]
+        mock_response.choices[0].message.content = "app.routes.*"
+
+        with patch("services.adg.merge._call_resolution_llm", return_value="app.routes.*"):
+            remaining_orphans = resolve_orphans(routes_adg, constraints, config)
+
+        # Subject should be remapped in-place
+        assert constraints[0].subject == "app.routes.*"
+        # Object already matched, so no orphan remaining for it
+        # If subject remap succeeds, it should not be in remaining orphans
+        assert "app.api.*" not in remaining_orphans
+
+    def test_resolve_remaps_orphan_object(self, routes_adg: ADG) -> None:
+        """LLM remaps orphan object pattern."""
+        from services.adg.merge import resolve_orphans
+        from services.extract.config import LangExtractConfig
+
+        config = LangExtractConfig(model_id="test-model", provider="openai")
+
+        constraints = [
+            ConstraintEdge(
+                subject="app.routes.*",
+                predicate=PredicateType.REQUIRES_DEPENDENCY,
+                object="app.auth.guard",
+                justification="Must use auth guard for authentication.",
+                char_interval=(10, 80),
+                adr_id="ADR-004",
+                adr_path="docs/adr/004.md",
+            ),
+        ]
+
+        with patch("services.adg.merge._call_resolution_llm", return_value="app.auth.middleware"):
+            remaining_orphans = resolve_orphans(routes_adg, constraints, config)
+
+        # Object should be remapped in-place
+        assert constraints[0].object == "app.auth.middleware"
+        assert "app.auth.guard" not in remaining_orphans
+
+    def test_resolve_no_mapping_leaves_orphan(self, routes_adg: ADG) -> None:
+        """When LLM returns 'no_mapping', the orphan stays unchanged."""
+        from services.adg.merge import resolve_orphans
+        from services.extract.config import LangExtractConfig
+
+        config = LangExtractConfig(model_id="test-model", provider="openai")
+
+        constraints = [
+            ConstraintEdge(
+                subject="app.api.*",
+                predicate=PredicateType.REQUIRES_DEPENDENCY,
+                object="app.auth.middleware",
+                justification="All API endpoints must import auth middleware.",
+                char_interval=(10, 80),
+                adr_id="ADR-002",
+                adr_path="docs/adr/002.md",
+            ),
+        ]
+
+        with patch("services.adg.merge._call_resolution_llm", return_value="no_mapping"):
+            remaining_orphans = resolve_orphans(routes_adg, constraints, config)
+
+        # Subject stays unchanged
+        assert constraints[0].subject == "app.api.*"
+        assert "app.api.*" in remaining_orphans
+
+    def test_resolve_both_sides_orphaned_separate_calls(self, routes_adg: ADG) -> None:
+        """When both subject and object are orphaned, two separate LLM calls are made."""
+        from services.adg.merge import resolve_orphans
+        from services.extract.config import LangExtractConfig
+
+        config = LangExtractConfig(model_id="test-model", provider="openai")
+
+        constraints = [
+            ConstraintEdge(
+                subject="app.api.*",
+                predicate=PredicateType.REQUIRES_DEPENDENCY,
+                object="app.auth.guard",
+                justification="All API endpoints must use auth guard.",
+                char_interval=(10, 80),
+                adr_id="ADR-002",
+                adr_path="docs/adr/002.md",
+            ),
+        ]
+
+        call_count = 0
+        side_effects = ["app.routes.*", "app.auth.middleware"]
+
+        def mock_llm_call(pattern, candidates, justification, config):
+            nonlocal call_count
+            result = side_effects[call_count]
+            call_count += 1
+            return result
+
+        with patch("services.adg.merge._call_resolution_llm", side_effect=mock_llm_call):
+            remaining_orphans = resolve_orphans(routes_adg, constraints, config)
+
+        assert call_count == 2
+        assert constraints[0].subject == "app.routes.*"
+        assert constraints[0].object == "app.auth.middleware"
+
+    def test_resolve_in_place_modification(self, routes_adg: ADG) -> None:
+        """Remapping modifies ConstraintEdge in-place, not creating a new object."""
+        from services.adg.merge import resolve_orphans
+        from services.extract.config import LangExtractConfig
+
+        config = LangExtractConfig(model_id="test-model", provider="openai")
+
+        constraints = [
+            ConstraintEdge(
+                subject="app.api.*",
+                predicate=PredicateType.REQUIRES_DEPENDENCY,
+                object="app.auth.middleware",
+                justification="All API endpoints must import auth middleware.",
+                char_interval=(10, 80),
+                adr_id="ADR-002",
+                adr_path="docs/adr/002.md",
+            ),
+        ]
+        original_id = id(constraints[0])
+
+        with patch("services.adg.merge._call_resolution_llm", return_value="app.routes.*"):
+            resolve_orphans(routes_adg, constraints, config)
+
+        # Same object, modified in place
+        assert id(constraints[0]) == original_id
+        assert constraints[0].subject == "app.routes.*"
+
+    def test_resolve_no_orphans_skips_llm(self, sample_adg: ADG) -> None:
+        """When all constraints match ADG nodes, no LLM call is made."""
+        from services.adg.merge import resolve_orphans
+        from services.extract.config import LangExtractConfig
+
+        config = LangExtractConfig(model_id="test-model", provider="openai")
+
+        constraints = [
+            ConstraintEdge(
+                subject="app.api.*",
+                predicate=PredicateType.REQUIRES_DEPENDENCY,
+                object="app.auth.middleware",
+                justification="All API endpoints must import auth middleware.",
+                char_interval=(10, 80),
+                adr_id="ADR-003",
+                adr_path="docs/adr/003.md",
+            ),
+        ]
+
+        with patch("services.adg.merge._call_resolution_llm") as mock_llm:
+            remaining_orphans = resolve_orphans(sample_adg, constraints, config)
+            mock_llm.assert_not_called()
+
+        # No orphans, constraints unchanged
+        assert constraints[0].subject == "app.api.*"
+        assert len(remaining_orphans) == 0
+
+    def test_remapped_constraint_rematched(self, routes_adg: ADG) -> None:
+        """After remapping, the constraint should match ADG nodes via existing logic."""
+        from services.adg.merge import merge_constraints, resolve_orphans
+        from services.extract.config import LangExtractConfig
+
+        config = LangExtractConfig(model_id="test-model", provider="openai")
+
+        constraints = [
+            ConstraintEdge(
+                subject="app.api.*",
+                predicate=PredicateType.REQUIRES_DEPENDENCY,
+                object="app.auth.middleware",
+                justification="All API endpoints must import auth middleware.",
+                char_interval=(10, 80),
+                adr_id="ADR-002",
+                adr_path="docs/adr/002.md",
+            ),
+        ]
+
+        # First: resolve orphans to remap app.api.* -> app.routes.*
+        with patch("services.adg.merge._call_resolution_llm", return_value="app.routes.*"):
+            remaining_orphans = resolve_orphans(routes_adg, constraints, config)
+
+        assert constraints[0].subject == "app.routes.*"
+
+        # Then: merge_constraints should now match the remapped constraint
+        result = merge_constraints(routes_adg, constraints)
+        # The remapped subject app.routes.* should match app.routes.users in the ADG
+        subject_match = match_fqn(constraints[0].subject, result.nodes)
+        assert subject_match.status == MatchStatus.WILDCARD
+
+
+# ===========================================================================
+# 10. MatchStatus: SEGMENT removed
+# ===========================================================================
+
+
+class TestMatchStatusNoSegment:
+    """MatchStatus no longer has SEGMENT; superseded by LLM resolution layer."""
+
+    def test_match_status_values(self) -> None:
+        assert MatchStatus.EXACT.value == "exact"
+        assert MatchStatus.WILDCARD.value == "wildcard"
+        assert MatchStatus.NO_MATCH.value == "no_match"
+
+    def test_match_status_has_no_segment(self) -> None:
+        assert not hasattr(MatchStatus, "SEGMENT")

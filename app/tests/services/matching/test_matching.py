@@ -1,8 +1,8 @@
-"""Tests for the matching module: fqn_matches_pattern and match_fqn.
+"""Tests for the matching module: fqn_matches_pattern, match_fqn, compute_specificity.
 
 Public interface under test:
     fqn_matches_pattern: check if a concrete FQN matches a constraint pattern
-    match_fqn: resolve a constraint pattern against ADG nodes (refactored to use fqn_matches_pattern)
+    match_fqn: resolve a constraint pattern against ADG nodes
     compute_specificity: specificity scoring for constraint edges
 """
 
@@ -65,7 +65,7 @@ class TestFqnMatchesPatternExact:
         from services.matching import fqn_matches_pattern, MatchStatus
 
         result = fqn_matches_pattern(FQN.from_dotted("app.auth.middleware"), "app.middleware.auth")
-        assert result != MatchStatus.EXACT
+        assert result == MatchStatus.NO_MATCH
 
 
 # ===========================================================================
@@ -92,7 +92,7 @@ class TestFqnMatchesPatternWildcard:
         from services.matching import fqn_matches_pattern, MatchStatus
 
         result = fqn_matches_pattern(FQN.from_dotted("app.services.user"), "app.api.*")
-        assert result != MatchStatus.WILDCARD
+        assert result == MatchStatus.NO_MATCH
 
     def test_wildcard_prefix_itself_not_match(self) -> None:
         from services.matching import fqn_matches_pattern, MatchStatus
@@ -103,102 +103,7 @@ class TestFqnMatchesPatternWildcard:
 
 
 # ===========================================================================
-# 3. fqn_matches_pattern: segment match (concrete)
-# ===========================================================================
-
-
-class TestFqnMatchesPatternSegmentConcrete:
-    """Segment match: Jaccard overlap on dot-split segments, both non-wildcard."""
-
-    def test_segment_reorder_jaccard_1(self) -> None:
-        from services.matching import fqn_matches_pattern, MatchStatus
-
-        # app.auth.middleware vs app.middleware.auth: same segments, different order
-        result = fqn_matches_pattern(FQN.from_dotted("app.middleware.auth"), "app.auth.middleware")
-        assert result == MatchStatus.SEGMENT
-
-    def test_segment_near_miss_high_jaccard(self) -> None:
-        from services.matching import fqn_matches_pattern, MatchStatus
-
-        # app.auth.middleware vs app.auth.handler: 2/4 overlap (below 0.9)
-        result = fqn_matches_pattern(FQN.from_dotted("app.auth.handler"), "app.auth.middleware")
-        assert result != MatchStatus.SEGMENT
-
-    def test_segment_different_depth_no_match(self) -> None:
-        from services.matching import fqn_matches_pattern, MatchStatus
-
-        # app.auth vs app.auth.middleware: very different segment counts
-        result = fqn_matches_pattern(FQN.from_dotted("app.auth"), "app.auth.middleware")
-        assert result != MatchStatus.SEGMENT
-
-    def test_segment_multiset_preserves_duplicates(self) -> None:
-        from services.matching import fqn_matches_pattern, MatchStatus
-
-        # app.service.service.handler vs app.handler.service.service:
-        # multiset Jaccard should be 1.0 (same segments with same counts)
-        result = fqn_matches_pattern(FQN.from_dotted("app.handler.service.service"), "app.service.service.handler")
-        assert result == MatchStatus.SEGMENT
-
-    def test_segment_multiset_catches_false_positive(self) -> None:
-        from services.matching import fqn_matches_pattern, MatchStatus
-
-        # app.service.service.handler vs app.service.handler:
-        # multiset: {app:1, service:2, handler:1} vs {app:1, service:1, handler:1}
-        # intersection min counts: {app:1, service:1, handler:1} = 3
-        # union max counts: {app:1, service:2, handler:1} = 4
-        # Jaccard = 3/4 = 0.75, below 0.9 threshold
-        result = fqn_matches_pattern(FQN.from_dotted("app.service.handler"), "app.service.service.handler")
-        assert result != MatchStatus.SEGMENT
-
-
-# ===========================================================================
-# 4. fqn_matches_pattern: segment match (wildcard)
-# ===========================================================================
-
-
-class TestFqnMatchesPatternSegmentWildcard:
-    """Segment match on wildcard patterns: Jaccard on prefix segments after stripping .*."""
-
-    def test_wildcard_segment_reorder(self) -> None:
-        from services.matching import fqn_matches_pattern, MatchStatus
-
-        # Pattern: app.middleware.user.model.*
-        # FQN: app.middleware.model.user.service
-        # Prefix segments: {app, middleware, user, model} vs {app, middleware, model, user}
-        # Jaccard = 4/4 = 1.0, and FQN is a child
-        result = fqn_matches_pattern(
-            FQN.from_dotted("app.middleware.model.user.service"),
-            "app.middleware.user.model.*",
-        )
-        assert result == MatchStatus.SEGMENT
-
-    def test_wildcard_segment_not_child(self) -> None:
-        from services.matching import fqn_matches_pattern, MatchStatus
-
-        # Pattern: app.middleware.user.model.*
-        # FQN: app.middleware.model.user (same depth as prefix, not a child)
-        result = fqn_matches_pattern(
-            FQN.from_dotted("app.middleware.model.user"),
-            "app.middleware.user.model.*",
-        )
-        assert result != MatchStatus.SEGMENT
-
-    def test_wildcard_segment_low_jaccard(self) -> None:
-        from services.matching import fqn_matches_pattern, MatchStatus
-
-        # Pattern: app.api.routes.handler.*
-        # FQN: app.middleware.model.user.service
-        # Prefix segments: {app, api, routes, handler} vs {app, middleware, model, user}
-        # Intersection: {app} = 1, Union = 7, Jaccard ~ 0.14
-        result = fqn_matches_pattern(
-            FQN.from_dotted("app.middleware.model.user.service"),
-            "app.api.routes.handler.*",
-        )
-        assert result != MatchStatus.SEGMENT
-
-
-# ===========================================================================
-# 5. fqn_matches_pattern: no match
+# 3. fqn_matches_pattern: no match (segment matching removed, superseded by resolution layer)
 # ===========================================================================
 
 
@@ -211,46 +116,61 @@ class TestFqnMatchesPatternNoMatch:
         result = fqn_matches_pattern(FQN.from_dotted("app.db.postgres"), "app.auth.middleware")
         assert result == MatchStatus.NO_MATCH
 
+    def test_reordered_segments_no_match(self) -> None:
+        """Segment matching is removed; reordered FQN segments are NO_MATCH.
+
+        Previously, app.middleware.auth would segment-match app.auth.middleware
+        via Jaccard. Now this is NO_MATCH and handled by the LLM resolution layer.
+        """
+        from services.matching import fqn_matches_pattern, MatchStatus
+
+        result = fqn_matches_pattern(FQN.from_dotted("app.middleware.auth"), "app.auth.middleware")
+        assert result == MatchStatus.NO_MATCH
+
     def test_wildcard_no_children_exist(self) -> None:
         from services.matching import fqn_matches_pattern, MatchStatus
 
-        # The FQN itself doesn't match the wildcard pattern
-        # (standard wildcard already checked and failed, segment wildcard also fails)
         result = fqn_matches_pattern(FQN.from_dotted("app.db.postgres"), "app.nonexistent.*")
+        assert result == MatchStatus.NO_MATCH
+
+    def test_near_miss_no_match(self) -> None:
+        """Near-miss segment overlap below threshold is NO_MATCH (no segment layer)."""
+        from services.matching import fqn_matches_pattern, MatchStatus
+
+        result = fqn_matches_pattern(FQN.from_dotted("app.auth.handler"), "app.auth.middleware")
         assert result == MatchStatus.NO_MATCH
 
 
 # ===========================================================================
-# 6. fqn_matches_pattern: layer priority
+# 4. fqn_matches_pattern: layer priority
 # ===========================================================================
 
 
 class TestFqnMatchesPatternPriority:
-    """Exact > Wildcard > Segment. Earlier layers short-circuit."""
+    """Exact > Wildcard > No Match. Earlier layers short-circuit."""
 
     def test_exact_takes_priority_over_wildcard(self) -> None:
         from services.matching import fqn_matches_pattern, MatchStatus
 
-        # A pattern "app.api" matches the FQN "app.api" exactly,
-        # even though "app.api" could theoretically be a parent of "app.api.*"
+        # A pattern "app.api" matches the FQN "app.api" exactly
         result = fqn_matches_pattern(FQN.from_dotted("app.api"), "app.api")
         assert result == MatchStatus.EXACT
 
-    def test_wildcard_takes_priority_over_segment(self) -> None:
+    def test_wildcard_matches_child(self) -> None:
         from services.matching import fqn_matches_pattern, MatchStatus
 
-        # "app.api.*" with FQN "app.api.users" matches via wildcard first
+        # "app.api.*" with FQN "app.api.users" matches via wildcard
         result = fqn_matches_pattern(FQN.from_dotted("app.api.users"), "app.api.*")
         assert result == MatchStatus.WILDCARD
 
 
 # ===========================================================================
-# 7. match_fqn: refactored to use fqn_matches_pattern
+# 5. match_fqn: resolve pattern against ADG nodes
 # ===========================================================================
 
 
-class TestMatchFqnRefactored:
-    """match_fqn still works after refactor to use fqn_matches_pattern internally."""
+class TestMatchFqn:
+    """match_fqn resolves a pattern against ADG nodes."""
 
     def test_exact_match(self, sample_nodes: list[FQNNode]) -> None:
         from services.matching import match_fqn, MatchStatus
@@ -274,29 +194,28 @@ class TestMatchFqnRefactored:
         assert result.status == MatchStatus.NO_MATCH
         assert result.matched_fqns == []
 
-    def test_segment_match_collects_matching_nodes(self, sample_nodes: list[FQNNode]) -> None:
+    def test_reordered_is_orphan(self, sample_nodes: list[FQNNode]) -> None:
+        """Segment matching removed; reordered FQN is orphan (resolved by LLM layer)."""
         from services.matching import match_fqn, MatchStatus
 
-        # "app.middleware.auth" should segment-match to node "app.auth.middleware"
         result = match_fqn("app.middleware.auth", sample_nodes)
-        assert result.status == MatchStatus.SEGMENT
-        assert FQN.from_dotted("app.auth.middleware") in result.matched_fqns
+        assert result.status == MatchStatus.NO_MATCH
 
-    def test_segment_match_also_catches_exact_reorder(self, sample_nodes: list[FQNNode]) -> None:
+    def test_exact_match_priority(self, sample_nodes: list[FQNNode]) -> None:
+        """Exact match takes priority over wildcard."""
         from services.matching import match_fqn, MatchStatus
 
-        # "app.auth.middleware" has an exact node, so exact wins
         result = match_fqn("app.auth.middleware", sample_nodes)
         assert result.status == MatchStatus.EXACT
 
 
 # ===========================================================================
-# 8. compute_specificity (in matching module after refactor)
+# 6. compute_specificity (simplified: no SEGMENT, no jaccard_score)
 # ===========================================================================
 
 
 class TestComputeSpecificity:
-    """Specificity scoring, including segment match bonus."""
+    """Specificity scoring: EXACT = depth+1, WILDCARD = depth, NO_MATCH = 0.0."""
 
     def test_exact_specificity(self) -> None:
         from services.matching import compute_specificity, MatchStatus
@@ -325,14 +244,14 @@ class TestComputeSpecificity:
             adr_id="ADR-001",
             adr_path="docs/adr/001.md",
         )
-        # depth(app.api.*) = 3, no exact bonus, wildcard penalty removed per ADR 006
+        # depth(app.api.*) = 3, wildcard = depth only
         assert compute_specificity(edge, match_status=MatchStatus.WILDCARD) == 3.0
 
-    def test_segment_specificity_with_jaccard(self) -> None:
+    def test_shallow_fqn_low_specificity(self) -> None:
         from services.matching import compute_specificity, MatchStatus
 
         edge = ConstraintEdge(
-            subject="app.auth.middleware",
+            subject="app",
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
             object="logging",
             justification="test",
@@ -340,27 +259,11 @@ class TestComputeSpecificity:
             adr_id="ADR-001",
             adr_path="docs/adr/001.md",
         )
-        # depth = 3, jaccard_score = 1.0 (perfect reorder)
-        # specificity = 3 + 1.0 = 4.0
-        assert compute_specificity(edge, match_status=MatchStatus.SEGMENT, jaccard_score=1.0) == 4.0
+        # depth(app) = 1, exact bonus = 1
+        assert compute_specificity(edge, match_status=MatchStatus.EXACT) == 2.0
 
-    def test_segment_specificity_partial_jaccard(self) -> None:
-        from services.matching import compute_specificity, MatchStatus
-
-        edge = ConstraintEdge(
-            subject="app.auth.middleware",
-            predicate=PredicateType.PROHIBITS_DEPENDENCY,
-            object="logging",
-            justification="test",
-            char_interval=(0, 10),
-            adr_id="ADR-001",
-            adr_path="docs/adr/001.md",
-        )
-        # depth = 3, jaccard_score = 0.9
-        # specificity = 3 + 0.9 = 3.9
-        assert compute_specificity(edge, match_status=MatchStatus.SEGMENT, jaccard_score=0.9) == 3.9
-
-    def test_orphan_specificity_zero(self) -> None:
+    def test_orphan_specificity(self) -> None:
+        """Orphan constraints get specificity 0 (no match to measure depth from)."""
         from services.matching import compute_specificity, MatchStatus
 
         edge = ConstraintEdge(
@@ -373,3 +276,76 @@ class TestComputeSpecificity:
             adr_path="docs/adr/001.md",
         )
         assert compute_specificity(edge, match_status=MatchStatus.NO_MATCH) == 0.0
+
+    def test_specificity_ordering(self) -> None:
+        """More specific constraints have higher scores: exact > wildcard > shallow exact."""
+        from services.matching import compute_specificity, MatchStatus
+
+        exact = ConstraintEdge(
+            subject="app.api.users",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="logging",
+            justification="test",
+            char_interval=(0, 10),
+            adr_id="ADR-001",
+            adr_path="docs/adr/001.md",
+        )
+        wildcard = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="logging",
+            justification="test",
+            char_interval=(0, 10),
+            adr_id="ADR-002",
+            adr_path="docs/adr/002.md",
+        )
+        shallow = ConstraintEdge(
+            subject="app",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="logging",
+            justification="test",
+            char_interval=(0, 10),
+            adr_id="ADR-003",
+            adr_path="docs/adr/003.md",
+        )
+        assert compute_specificity(exact, MatchStatus.EXACT) > compute_specificity(wildcard, MatchStatus.WILDCARD)
+        assert compute_specificity(wildcard, MatchStatus.WILDCARD) > compute_specificity(shallow, MatchStatus.EXACT)
+        # 4.0 > 3.0 > 2.0
+
+    def test_no_jaccard_score_parameter(self) -> None:
+        """compute_specificity does not accept jaccard_score (SEGMENT removed)."""
+        from services.matching import compute_specificity, MatchStatus
+
+        edge = ConstraintEdge(
+            subject="app.api",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="logging",
+            justification="test",
+            char_interval=(0, 10),
+            adr_id="ADR-001",
+            adr_path="docs/adr/001.md",
+        )
+        # Should not accept jaccard_score parameter
+        with pytest.raises(TypeError):
+            compute_specificity(edge, match_status=MatchStatus.WILDCARD, jaccard_score=0.9)
+
+
+# ===========================================================================
+# 7. MatchStatus: SEGMENT removed
+# ===========================================================================
+
+
+class TestMatchStatusNoSegment:
+    """MatchStatus no longer has SEGMENT; superseded by LLM resolution layer."""
+
+    def test_match_status_values(self) -> None:
+        from services.matching import MatchStatus
+
+        assert MatchStatus.EXACT.value == "exact"
+        assert MatchStatus.WILDCARD.value == "wildcard"
+        assert MatchStatus.NO_MATCH.value == "no_match"
+
+    def test_match_status_has_no_segment(self) -> None:
+        from services.matching import MatchStatus
+
+        assert not hasattr(MatchStatus, "SEGMENT")
