@@ -5,10 +5,10 @@ from dataclasses import dataclass, field
 from services.fqn import FQN
 from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, PredicateType
 from services.cpt.resolution import Violation, resolve, suppress_outweighed_prohibits
-from services.matching import MatchStatus, fqn_matches_pattern
+from services.resolver import MatchStatus, fqn_matches_pattern
 from collections import deque, defaultdict
 
-_PRIORITY = {MatchStatus.EXACT: 3, MatchStatus.WILDCARD: 2, MatchStatus.SEGMENT: 1}
+_PRIORITY = {MatchStatus.EXACT: 3, MatchStatus.WILDCARD: 2}
 
 
 @dataclass

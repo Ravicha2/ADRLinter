@@ -1,13 +1,15 @@
-from services.adg.merge import MatchResult, MatchStatus, add_external_nodes, compute_specificity, match_fqn, merge_constraints
+from services.adg.merge import add_external_nodes, merge_constraints
 from services.adg.treesitter import parse_file, parse_repo
+from services.resolver import MatchReport, MatchStatus, NameResolver, compute_specificity, fqn_matches_pattern
 
 __all__ = [
     "parse_file",
     "parse_repo",
-    "MatchResult",
+    "MatchReport",
     "MatchStatus",
-    "match_fqn",
-    "compute_specificity",
+    "NameResolver",
     "add_external_nodes",
     "merge_constraints",
+    "compute_specificity",
+    "fqn_matches_pattern",
 ]

@@ -316,7 +316,7 @@ class TestCheckStructuralPredicates:
 
     def test_prohibits_dependency_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -342,7 +342,7 @@ class TestCheckStructuralPredicates:
 
     def test_prohibits_dependency_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -367,7 +367,7 @@ class TestCheckStructuralPredicates:
 
     def test_prohibits_implementation_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.*",
@@ -401,7 +401,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_dependency_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -426,7 +426,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_dependency_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -452,7 +452,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_implementation_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.middleware",
@@ -476,7 +476,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_implementation_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.middleware",
@@ -503,7 +503,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_skips_constraint_if_changed_not_in_subject(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -546,7 +546,7 @@ class TestResolve:
         adr_id: str = "ADR-001",
     ) -> "Violation":
         from services.cpt.engine import Violation
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject=subject,
@@ -817,7 +817,7 @@ class TestCptDataModels:
 
     def test_violation_fields(self) -> None:
         from services.cpt.engine import Violation
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -856,7 +856,7 @@ class TestCptDataModels:
 
     def test_matched_constraint_fields(self) -> None:
         from services.cpt.engine import MatchedConstraint
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",

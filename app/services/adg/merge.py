@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
+from typing import Callable
 
 from services.fqn import FQN
 from services.models import ADG, ConstraintEdge, FQNKind, FQNNode
-from services.matching import MatchResult, MatchStatus, compute_specificity, match_fqn
+from services.resolver import LLMResolver, MatchStatus, NameResolver
 from dataclasses import dataclass
 from services.extract.config import LangExtractConfig
 
@@ -47,7 +48,7 @@ def gather_candidates(pattern:str, nodes: list[FQNNode]) -> list[FQNNode]:
     node_fqns = {str(node.fqn) for node in nodes}
     if pattern in node_fqns:
         return []
-    
+
     # strip wildcard suffix for prefix matching
     prefix_pattern = pattern[:-2] if pattern.endswith(".*") else pattern
     segments = prefix_pattern.split(".")
@@ -94,7 +95,13 @@ def _call_resolution_llm(pattern: str, candidates: list[FQNNode], justification:
 
     return response.choices[0].message.content.strip()
 
-def resolve_orphans(adg: ADG, constraints: list[ConstraintEdge], config: LangExtractConfig) -> set[str]:
+def _make_llm_resolver(config: LangExtractConfig) -> LLMResolver:
+    """Build an LLM resolver callable from config, decoupling openai from merge logic."""
+    def resolver(pattern: str, candidates: list[FQNNode], justification: str) -> str:
+        return _call_resolution_llm(pattern, candidates, justification, config)
+    return resolver
+
+def resolve_orphans(adg: ADG, constraints: list[ConstraintEdge], resolver: NameResolver, llm_resolver: LLMResolver | None = None) -> set[str]:
     """
     LLM-backed naming resolution for orphan FQN patterns.
 
@@ -106,8 +113,12 @@ def resolve_orphans(adg: ADG, constraints: list[ConstraintEdge], config: LangExt
     for constraint in constraints:
         for side in ("subject", "object"):
             pattern = getattr(constraint, side)
-            match = match_fqn(pattern, adg.nodes)
-            if match.status != MatchStatus.NO_MATCH:
+            report = resolver.match(pattern)
+            if report.status != MatchStatus.NO_MATCH:
+                continue
+
+            if llm_resolver is None:
+                remaining_orphans.add(pattern)
                 continue
 
             candidates = gather_candidates(pattern, adg.nodes)
@@ -115,13 +126,13 @@ def resolve_orphans(adg: ADG, constraints: list[ConstraintEdge], config: LangExt
                 remaining_orphans.add(pattern)
                 continue
 
-            remapped = _call_resolution_llm(pattern, candidates, constraint.justification, config)
+            remapped = llm_resolver(pattern, candidates, constraint.justification)
             if remapped == "no_mapping":
                 remaining_orphans.add(pattern)
                 continue
 
             setattr(constraint, side, remapped)
-    
+
     return remaining_orphans
 
 def merge_constraints(adg: ADG, constraints: list[ConstraintEdge], config: LangExtractConfig | None = None) -> ADG:
@@ -135,28 +146,27 @@ def merge_constraints(adg: ADG, constraints: list[ConstraintEdge], config: LangE
     """
     log.info("merge_constraints: merging %d constraint edges into ADG with %d nodes", len(constraints), len(adg.nodes))
     adg = add_external_nodes(adg)
+    resolver = NameResolver({n.fqn for n in adg.nodes})
 
     if config is not None:
-        resolve_orphans(adg, constraints, config)
+        resolve_orphans(adg, constraints, resolver, llm_resolver=_make_llm_resolver(config))
 
     enriched_constraint_edges: list[ConstraintEdge] = []
     orphan_fqns: set[str] = set()
 
     for constraint_edge in constraints:
-        subject_match = match_fqn(constraint_edge.subject, adg.nodes)
-        subject_specificity = compute_specificity(constraint_edge, subject_match.status)
-
-        object_match = match_fqn(constraint_edge.object, adg.nodes)
+        subject_report = resolver.match(constraint_edge.subject)
+        object_report = resolver.match(constraint_edge.object)
 
         log.info(
             "merge_constraints: [%s] subject='%s' (%s, spec=%.1f) -> object='%s' (%s)",
-            constraint_edge.adr_id, constraint_edge.subject, subject_match.status.value,
-            subject_specificity, constraint_edge.object, object_match.status.value,
+            constraint_edge.adr_id, constraint_edge.subject, subject_report.status.value,
+            subject_report.specificity, constraint_edge.object, object_report.status.value,
         )
 
-        if subject_match.status == MatchStatus.NO_MATCH:
+        if subject_report.status == MatchStatus.NO_MATCH:
             orphan_fqns.add(constraint_edge.subject)
-        if object_match.status == MatchStatus.NO_MATCH:
+        if object_report.status == MatchStatus.NO_MATCH:
             orphan_fqns.add(constraint_edge.object)
 
         enriched_constraint_edges.append(ConstraintEdge(
@@ -167,7 +177,7 @@ def merge_constraints(adg: ADG, constraints: list[ConstraintEdge], config: LangE
               adr_id=constraint_edge.adr_id,
               adr_path=constraint_edge.adr_path,
               char_interval=constraint_edge.char_interval,
-              specificity=subject_specificity,
+              specificity=subject_report.specificity,
           ))
 
     if orphan_fqns:

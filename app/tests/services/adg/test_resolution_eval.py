@@ -237,7 +237,8 @@ def test_resolution_remaps_correctly(
 @pytest.mark.llm_eval
 def test_resolution_subject_and_object_both_orphaned() -> None:
     """Both subject and object are orphaned: two LLM calls, both should remap."""
-    from services.adg.merge import resolve_orphans
+    from services.adg.merge import resolve_orphans, _make_llm_resolver
+    from services.resolver import NameResolver
 
     config = _get_config()
 
@@ -249,6 +250,7 @@ def test_resolution_subject_and_object_both_orphaned() -> None:
         "app.auth.middleware",
     ])
     adg = ADG(nodes=nodes, edges=[])
+    resolver = NameResolver({n.fqn for n in adg.nodes})
 
     constraints = [
         ConstraintEdge(
@@ -262,7 +264,7 @@ def test_resolution_subject_and_object_both_orphaned() -> None:
         ),
     ]
 
-    remaining = resolve_orphans(adg, constraints, config)
+    remaining = resolve_orphans(adg, constraints, resolver, llm_resolver=_make_llm_resolver(config))
 
     assert constraints[0].subject == "app.routes.*", (
         f"Subject remap failed: got {constraints[0].subject!r}, expected 'app.routes.*'"
@@ -275,7 +277,8 @@ def test_resolution_subject_and_object_both_orphaned() -> None:
 @pytest.mark.llm_eval
 def test_resolution_no_match_stays_orphan() -> None:
     """Forward-declaration orphan should not be remapped to an unrelated node."""
-    from services.adg.merge import resolve_orphans
+    from services.adg.merge import resolve_orphans, _make_llm_resolver
+    from services.resolver import NameResolver
 
     config = _get_config()
 
@@ -285,6 +288,7 @@ def test_resolution_no_match_stays_orphan() -> None:
         "app.auth",
     ])
     adg = ADG(nodes=nodes, edges=[])
+    resolver = NameResolver({n.fqn for n in adg.nodes})
 
     constraints = [
         ConstraintEdge(
@@ -298,7 +302,7 @@ def test_resolution_no_match_stays_orphan() -> None:
         ),
     ]
 
-    remaining = resolve_orphans(adg, constraints, config)
+    remaining = resolve_orphans(adg, constraints, resolver, llm_resolver=_make_llm_resolver(config))
 
     # Both sides should remain orphaned (no reasonable mapping exists)
     assert "app.billing.*" in remaining or constraints[0].subject == "app.billing.*"
