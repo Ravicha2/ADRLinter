@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
+from pathlib import Path
 from typing import Callable
 
 from services.fqn import FQN
 from services.models import ADG, ConstraintEdge, FQNKind, FQNNode
-from services.resolver import LLMResolver, MatchStatus, NameResolver
+from services.resolver import LLMResolver, MatchStatus, NameResolver, ResolutionLogEntry, write_resolution_log
 from dataclasses import dataclass
 from services.extract.config import LangExtractConfig
 
@@ -72,9 +74,10 @@ def gather_candidates(pattern:str, nodes: list[FQNNode]) -> list[FQNNode]:
     # no prefix matched, return all nodes as candidates
     return list(nodes)
 
-def _call_resolution_llm(pattern: str, candidates: list[FQNNode], justification: str, config: LangExtractConfig) -> str:
+def _call_resolution_llm(pattern: str, candidates: list[FQNNode], justification: str, config: LangExtractConfig, log_path: Path | None = None) -> str:
     """Call LLM to remap an orphaned FQN pattern. return remapped or 'no_mapping'"""
     import openai
+    from datetime import datetime, timezone
 
     candidate_fqns = "\n".join(f"- {node.fqn}" for node in candidates)
     prompt = (
@@ -86,22 +89,37 @@ def _call_resolution_llm(pattern: str, candidates: list[FQNNode], justification:
         f'or "no_mapping" if no mapping exists. Reply with ONLY the pattern string.'
     )
 
+    t0 = time.monotonic()
     client = openai.OpenAI(base_url=config.model_url, api_key=config.api_key)
     response = client.chat.completions.create(
         model=config.model_id,
         messages=[{"role": "user", "content": prompt}],
         temperature=config.temperature,
     )
+    remapped = response.choices[0].message.content.strip()
+    duration_ms = (time.monotonic() - t0) * 1000
 
-    return response.choices[0].message.content.strip()
+    if log_path is not None:
+        entry = ResolutionLogEntry(
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            pattern=pattern,
+            candidate_fqns=[str(n.fqn) for n in candidates],
+            justification=justification,
+            model_id=config.model_id or "",
+            remapped=remapped,
+            duration_ms=round(duration_ms, 1),
+        )
+        write_resolution_log(entry, log_path)
 
-def _make_llm_resolver(config: LangExtractConfig) -> LLMResolver:
+    return remapped
+
+def _make_llm_resolver(config: LangExtractConfig, log_path: Path | None = None) -> LLMResolver:
     """Build an LLM resolver callable from config, decoupling openai from merge logic."""
     def resolver(pattern: str, candidates: list[FQNNode], justification: str) -> str:
-        return _call_resolution_llm(pattern, candidates, justification, config)
+        return _call_resolution_llm(pattern, candidates, justification, config, log_path=log_path)
     return resolver
 
-def resolve_orphans(adg: ADG, constraints: list[ConstraintEdge], resolver: NameResolver, llm_resolver: LLMResolver | None = None) -> set[str]:
+def resolve_orphans(adg: ADG, constraints: list[ConstraintEdge], resolver: NameResolver, llm_resolver: LLMResolver | None = None, log_path: Path | None = None) -> set[str]:
     """
     LLM-backed naming resolution for orphan FQN patterns.
 
@@ -135,7 +153,7 @@ def resolve_orphans(adg: ADG, constraints: list[ConstraintEdge], resolver: NameR
 
     return remaining_orphans
 
-def merge_constraints(adg: ADG, constraints: list[ConstraintEdge], config: LangExtractConfig | None = None) -> ADG:
+def merge_constraints(adg: ADG, constraints: list[ConstraintEdge], config: LangExtractConfig | None = None, log_path: Path | None = None) -> ADG:
     """
     Unify Track A ADG + Track B constraint edges into a merged ADG.
 
@@ -149,7 +167,7 @@ def merge_constraints(adg: ADG, constraints: list[ConstraintEdge], config: LangE
     resolver = NameResolver({n.fqn for n in adg.nodes})
 
     if config is not None:
-        resolve_orphans(adg, constraints, resolver, llm_resolver=_make_llm_resolver(config))
+        resolve_orphans(adg, constraints, resolver, llm_resolver=_make_llm_resolver(config, log_path=log_path), log_path=log_path)
 
     enriched_constraint_edges: list[ConstraintEdge] = []
     orphan_fqns: set[str] = set()

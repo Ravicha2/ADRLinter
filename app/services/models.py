@@ -45,10 +45,7 @@ class MDSResult:
     dominance_counts: dict[str, int] = field(default_factory=dict)
 
 
-# ---------------------------------------------------------------------------
 # Diff Processor data models
-# ---------------------------------------------------------------------------
-
 
 @dataclass
 class FileChange:

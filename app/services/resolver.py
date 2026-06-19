@@ -7,8 +7,10 @@ in treesitter.py, and duplicated fqn_matches_pattern in engine.py.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Callable
 
 from services.fqn import FQN
@@ -28,12 +30,12 @@ class MatchReport:
     specificity: float = 0.0
 
 
-# ponytail: LLMResolver type for injectable callback, decouples openai from merge logic
+# LLMResolver type for injectable callback, decouples openai from merge logic
 LLMResolver = Callable[[str, list[FQNNode], str], str]
 
 
 def fqn_matches_pattern(fqn: FQN, pattern: str) -> MatchStatus:
-    """Pure function: check if a concrete FQN matches a constraint pattern."""
+    """check if a concrete FQN matches a constraint pattern."""
     if str(fqn) == pattern:
         return MatchStatus.EXACT
     if pattern.endswith(".*"):
@@ -61,11 +63,11 @@ class NameResolver:
     Build once from known FQNs, then use for:
     - resolve(): O(1) bare/dotted name lookup (parse time)
     - match(): pattern matching with specificity (merge/detection time)
-    """
+    """ 
 
     def __init__(self, fqns: set[FQN]):
         self._fqns = fqns
-        # ponytail: suffix index for O(1) lookup, first match on ambiguity
+        # suffix index for lookup, first match on ambiguity
         self._suffix_index: dict[str, list[FQN]] = {}
         for fqn in fqns:
             parts = fqn.parts
@@ -77,7 +79,7 @@ class NameResolver:
         return fqn in self._fqns
 
     def resolve(self, text: str) -> FQN | None:
-        """Resolve a bare or dotted name to a known FQN. O(1) via suffix index."""
+        """Resolve a bare or dotted name to a known FQN. via suffix index."""
         matches = self._suffix_index.get(text)
         if matches:
             return matches[0]
@@ -106,3 +108,23 @@ class NameResolver:
             matched=matched,
             specificity=compute_specificity(pattern, best),
         )
+
+
+@dataclass
+class ResolutionLogEntry:
+    timestamp: str
+    pattern: str
+    candidate_fqns: list[str]
+    justification: str
+    model_id: str
+    remapped: str
+    duration_ms: float
+
+
+def write_resolution_log(entry: ResolutionLogEntry, log_path: Path) -> None:
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry.__dict__, default=str) + "\n")
+    except Exception:
+        pass

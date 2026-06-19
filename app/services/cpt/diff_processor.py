@@ -1,7 +1,7 @@
 """Diff Processor: identify changed FQNs from a git commit diff."""
 
 from services.fqn import FQN
-from services.models import ChangedFQN, CommitDiff, DiffResult, FQNKind
+from services.models import ADG, ChangedFQN, CommitDiff, DiffResult, FQNKind
 from services.adg import parse_file
 
 def process_diff(commit_diff: CommitDiff) -> DiffResult:
@@ -107,3 +107,39 @@ def make_changed_fqn(
           enclosing_class=enclosing_class,
           enclosing_module=module_fqn,
       )
+
+
+def augment_adg(adg: ADG, commit_diff: CommitDiff) -> None:
+    """Merge new/modified file contents from a diff into the ADG in-place.
+
+    Without this, BFS from added FQNs can't expand because those nodes
+    don't exist in the base ADG.
+    """
+    existing_fqns = {n.fqn for n in adg.nodes}
+    existing_edges = {(e.source, e.target, e.kind) for e in adg.edges}
+
+    for file_change in commit_diff.changed_files:
+        path = file_change.path
+        if not path.endswith(".py"):
+            continue
+        # Use new content for added/modified, old content for deleted
+        if file_change.status in ("added", "modified"):
+            source = commit_diff.file_contents.get(path, b"")
+        elif file_change.status == "renamed":
+            source = commit_diff.file_contents.get(path, b"")
+        else:
+            continue
+        if not source:
+            continue
+
+        module_fqn = FQN.from_path(path)
+        new_nodes, new_edges = parse_file(source, module_fqn, path)
+        for node in new_nodes:
+            if node.fqn not in existing_fqns:
+                adg.nodes.append(node)
+                existing_fqns.add(node.fqn)
+        for edge in new_edges:
+            key = (edge.source, edge.target, edge.kind)
+            if key not in existing_edges:
+                adg.edges.append(edge)
+                existing_edges.add(key)

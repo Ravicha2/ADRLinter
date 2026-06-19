@@ -15,6 +15,7 @@ from cli.config import load_config
 from services.adg import parse_repo
 from services.adg.merge import merge_constraints
 from services.cpt import GitAdapter, process_diff
+from services.cpt.diff_processor import augment_adg
 from services.cpt.engine import detect as cpt_detect
 from services.extract import extract_all_adrs
 from services.graph.connector import GraphStore
@@ -146,6 +147,9 @@ def detect(
 
     merged = merge_constraints(adg, all_constraints)
     console.print(f"  ADG: {len(merged.nodes)} nodes, {len(merged.edges)} edges, {len(merged.constraint_edges)} constraints")
+
+    # 4b. Augment ADG with new code from the diff so BFS can expand from changed FQNs
+    augment_adg(merged, commit_diff)
 
     # 5. Run CPT detect
     cpt_result = cpt_detect(result, merged)
