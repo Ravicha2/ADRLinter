@@ -193,6 +193,15 @@ def _has_error(node) -> bool:
     return node.has_error
 
 
+def _is_test_file(path: Path, repo_root: Path) -> bool:
+    """Skip test files: paths under a tests/ dir, or files named test_*.py / *_test.py."""
+    parts = path.relative_to(repo_root).parts
+    if any(part in ("tests", "test") for part in parts[:-1]):
+        return True
+    name = path.name
+    return name.startswith("test_") or name.endswith("_test.py")
+
+
 
 def parse_repo(repo_path: Path) -> ADG:
     """
@@ -201,7 +210,10 @@ def parse_repo(repo_path: Path) -> ADG:
     nodes: list[FQNNode] = []
     edges: list[Edge] = []
 
-    py_files = sorted(repo_path.rglob("*.py"))
+    py_files = sorted(
+        p for p in repo_path.rglob("*.py")
+        if not _is_test_file(p, repo_path)
+    )
     parser = Parser(PY_LANGUAGE)
 
     # Pass 1: read sources + create module nodes

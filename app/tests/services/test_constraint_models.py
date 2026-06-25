@@ -269,6 +269,18 @@ class TestConstraintEdgeValidation:
                 adr_path="docs/adr/ADR-001.md",
             )
 
+    def test_self_loop_rejected(self) -> None:
+        """subject == object is a self-loop and must be rejected."""
+        with pytest.raises(ValueError, match="subject and object must differ"):
+            ConstraintEdge(
+                subject="app.auth.middleware",
+                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+                object="app.auth.middleware",
+                justification="Only app.auth.middleware may implement authentication.",
+                adr_id="ADR-010",
+                adr_path="docs/adr/010.md",
+            )
+
 
 # ===========================================================================
 # 4. ExtractionError

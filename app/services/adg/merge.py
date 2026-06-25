@@ -149,6 +149,17 @@ def resolve_orphans(adg: ADG, constraints: list[ConstraintEdge], resolver: NameR
                 remaining_orphans.add(pattern)
                 continue
 
+            # self-loop guard, revert if remap collapses subject == object FIXME this not hold for recuersion
+            other_side = "object" if side == "subject" else "subject"
+            other_value = getattr(constraint, other_side)
+            if remapped == other_value:
+                log.warning(
+                    "resolve_orphans: remap '%s' -> '%s' creates self-loop with %s for %s, treating as no_mapping",
+                    pattern, remapped, other_side, constraint.adr_id,
+                )
+                remaining_orphans.add(pattern)
+                continue
+
             setattr(constraint, side, remapped)
 
     return remaining_orphans

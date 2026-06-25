@@ -639,3 +639,55 @@ class TestResolveOrphans:
         result = merge_constraints(routes_adg, constraints)
         report = NameResolver({n.fqn for n in result.nodes}).match(constraints[0].subject)
         assert report.status == MatchStatus.WILDCARD
+
+    def test_resolve_remapping_creates_self_loop_is_reverted(self, routes_adg: ADG) -> None:
+        """When LLM remap would collapse both orphaned sides to same FQN, revert second remap."""
+        # Construct with valid distinct values then mutate object (bypasses __post_init__)
+        c = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+            object="__placeholder__",
+            justification="Only API layer implements API logic.",
+            char_interval=(10, 80),
+            adr_id="ADR-010",
+            adr_path="docs/adr/010.md",
+        )
+        c.object = "app.api.*"
+        constraints = [c]
+
+        # Both sides orphaned; LLM remaps both to "app.routes.*"
+        # Second remap would create self-loop, should be reverted
+        call_count = 0
+        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
+            nonlocal call_count
+            call_count += 1
+            return "app.routes.*"
+
+        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
+        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
+        # First remap (subject) succeeds, second remap (object) would create self-loop, reverted
+        assert len(remaining_orphans) > 0
+
+    def test_resolve_remapping_subject_collides_with_object(self, routes_adg: ADG) -> None:
+        """When remapping one side makes it equal to the other, revert the remap."""
+        constraints = [
+            ConstraintEdge(
+                subject="app.api.*",
+                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+                object="app.auth.middleware",
+                justification="API must implement auth.",
+                char_interval=(10, 80),
+                adr_id="ADR-011",
+                adr_path="docs/adr/011.md",
+            ),
+        ]
+
+        # LLM remaps subject "app.api.*" to "app.auth.middleware" which equals the object
+        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
+            return "app.auth.middleware"
+
+        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
+        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
+        # Remap reverted because it would create subject == object
+        assert "app.api.*" in remaining_orphans
+        assert constraints[0].subject == "app.api.*"

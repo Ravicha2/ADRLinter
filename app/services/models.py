@@ -104,6 +104,8 @@ class ConstraintEdge:
             raise ValueError("subject must be non-empty")
         if not self.object:
             raise ValueError("object must be non-empty")
+        if self.subject == self.object:
+            raise ValueError(f"subject and object must differ, got self-loop: {self.subject}") # FIXME not always the case, recursion?
         if not self.justification:
             raise ValueError("justification must be non-empty")
         if not self.adr_id:

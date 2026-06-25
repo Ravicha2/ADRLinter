@@ -848,10 +848,12 @@ class TestCptDataModels:
         result = CPTResult(
             violations=[],
             orphans=[],
+            self_loop_constraints=[],
             neighborhood={FQN.from_dotted("app")},
         )
         assert result.violations == []
         assert result.orphans == []
+        assert result.self_loop_constraints == []
         assert FQN.from_dotted("app") in result.neighborhood
 
     def test_matched_constraint_fields(self) -> None:
@@ -874,3 +876,88 @@ class TestCptDataModels:
         assert mc.constraint.adr_id == "ADR-003"
         assert len(mc.subject_matches) == 1
         assert len(mc.object_matches) == 1
+
+
+# ===========================================================================
+# 8. Self-loop constraint: subject == object produces no false-positive violations
+# ===========================================================================
+
+
+class TestSelfLoopConstraint:
+    """Regression: exclusion-pattern extraction where owner and object resolve to
+    the same FQN (e.g. 'only app.auth.middleware may implement authentication')
+    must not produce nonsensical violations like 'X does not implement X'."""
+
+    @staticmethod
+    def _make_self_loop(**overrides: str) -> ConstraintEdge:
+        """Construct a self-loop constraint by creating a valid one then mutating
+        in-place to bypass __post_init__ validation (simulates deserialization)."""
+        c = ConstraintEdge(
+            subject=overrides.get("subject", "app.auth.middleware"),
+            predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+            object="__placeholder__",
+            justification=overrides.get("justification", "Self-loop constraint."),
+            adr_id=overrides.get("adr_id", "ADR-010"),
+            adr_path="docs/adr/010.md",
+        )
+        c.object = overrides.get("subject", "app.auth.middleware")
+        return c
+
+    def test_detect_surfaces_self_loop_constraint(self, sample_adg: ADG) -> None:
+        from services.cpt.engine import detect
+
+        self_loop = self._make_self_loop(
+            subject="app.auth.middleware",
+            adr_id="ADR-010",
+        )
+        adg = ADG(
+            nodes=sample_adg.nodes,
+            edges=sample_adg.edges,
+            constraint_edges=[self_loop],
+        )
+        diff = DiffResult(
+            commit_sha="abc123",
+            parent_sha="def456",
+            changed_files=[FileChange(path="app/auth/middleware.py", status="modified")],
+            changed_fqns=[_changed_fqn("app.auth.middleware")],
+        )
+        result = detect(diff, adg, k=3)
+        # Self-loop constraint must not produce violations
+        assert len(result.violations) == 0
+        # Self-loop constraint surfaced for human review
+        assert len(result.self_loop_constraints) == 1
+        assert result.self_loop_constraints[0].adr_id == "ADR-010"
+
+    def test_detect_mixed_self_loop_and_normal(self, sample_adg: ADG) -> None:
+        from services.cpt.engine import detect
+
+        self_loop = self._make_self_loop(
+            subject="app.auth.middleware",
+            justification="Self-loop: no one but auth middleware implements auth.",
+            adr_id="ADR-010",
+        )
+        normal = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="app.models.*",
+            justification="API must not depend on models.",
+            adr_id="ADR-003",
+            adr_path="docs/adr/003.md",
+        )
+        adg = ADG(
+            nodes=sample_adg.nodes,
+            edges=sample_adg.edges,
+            constraint_edges=[self_loop, normal],
+        )
+        diff = DiffResult(
+            commit_sha="abc123",
+            parent_sha="def456",
+            changed_files=[FileChange(path="app/api/users.py", status="modified")],
+            changed_fqns=[_changed_fqn("app.api.users")],
+        )
+        result = detect(diff, adg, k=3)
+        # Normal constraint still processed
+        assert any(v.constraint.adr_id == "ADR-003" for v in result.violations)
+        # Self-loop filtered out, surfaced separately
+        assert len(result.self_loop_constraints) == 1
+        assert result.self_loop_constraints[0].adr_id == "ADR-010"
