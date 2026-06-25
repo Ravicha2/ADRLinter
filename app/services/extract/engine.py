@@ -110,10 +110,6 @@ class ADRExtractor:
                             "extraction_text": e.extraction_text,
                             "extraction_class": e.extraction_class,
                             "attributes": e.attributes,
-                            "char_interval": (
-                                (e.char_interval.start_pos, e.char_interval.end_pos)
-                                if e.char_interval else None
-                            ),
                         }
                         for e in result.extractions
                     ]
@@ -153,17 +149,12 @@ class ADRExtractor:
                 ))
                 continue
 
-            char_interval = None
-            if ext.char_interval is not None:
-                char_interval = (ext.char_interval.start_pos, ext.char_interval.end_pos)
-
             try:
                 edge = ConstraintEdge(
                     subject=attrs.get("subject", ""),
                     predicate=predicate,
                     object=attrs.get("object", ""),
                     justification=attrs.get("justification", ""),
-                    char_interval=char_interval,
                     adr_id=adr_id,
                     adr_path=adr_path,
                 )

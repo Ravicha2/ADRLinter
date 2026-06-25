@@ -65,14 +65,11 @@ if result.constraints:
     print(f"    predicate: {c.predicate.value}")
     print(f"    object: {c.object}")
     print(f"    justification: {c.justification}")
-    print(f"    char_interval: {c.char_interval}")
 
     assert c.subject, "subject must be non-empty"
     assert c.object, "object must be non-empty"
     assert c.justification, "justification must be non-empty"
     assert isinstance(c.predicate, PredicateType), f"predicate must be PredicateType, got {type(c.predicate)}"
-    assert c.char_interval[0] >= 0, f"char_interval start must be >= 0, got {c.char_interval[0]}"
-    assert c.char_interval[1] > c.char_interval[0], f"char_interval end must be > start"
     print("\n  OK: output structure is sound")
 else:
     print("\n  WARN: no constraints extracted (LLM may have returned empty)")

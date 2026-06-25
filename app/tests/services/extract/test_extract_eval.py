@@ -344,7 +344,6 @@ class TestJudgeEvaluation:
                     "predicate": c.predicate.value,
                     "object": c.object,
                     "justification": c.justification,
-                    "char_interval": list(c.char_interval) if c.char_interval is not None else None,
                 }
                 for c in constraints
             ],
@@ -410,9 +409,6 @@ class TestJudgeEvaluation:
         assert len(extraction.constraints) >= 1, f"{adr_label} produced no constraints"
 
         for c in extraction.constraints:
-            if c.char_interval is not None:
-                assert c.char_interval[0] >= 0
-                assert c.char_interval[1] > c.char_interval[0]
             assert c.justification
 
         constraints_json = self._serialize_constraints(extraction.constraints)

@@ -183,7 +183,6 @@ class GraphStore:
                 f"MATCH (tgt:FQNNode {{fqn: $object}}) "
                 f"CREATE (src)-[r:{predicate_str} {{"
                 "justification: $justification, adr_id: $adr_id, adr_path: $adr_path, "
-                "char_start: $char_start, char_end: $char_end, "
                 "specificity: $specificity"
                 "}]->(tgt)",
                 subject=constraint_edge.subject,
@@ -191,19 +190,12 @@ class GraphStore:
                 justification=constraint_edge.justification,
                 adr_id=constraint_edge.adr_id,
                 adr_path=constraint_edge.adr_path,
-                char_start=constraint_edge.char_interval[0] if constraint_edge.char_interval else None,
-                char_end=constraint_edge.char_interval[1] if constraint_edge.char_interval else None,
                 specificity=constraint_edge.specificity,
             )
 
     @staticmethod
     def _row_to_constraint_edge(record) -> ConstraintEdge:
         predicate = REL_TO_PREDICATE[record["predicate"]]
-        char_interval = None
-        char_start = record.get("char_start")
-        char_end = record.get("char_end")
-        if char_start is not None and char_end is not None:
-            char_interval = (char_start, char_end)
         return ConstraintEdge(
             subject=record["subject"],
             predicate=predicate,
@@ -211,7 +203,6 @@ class GraphStore:
             justification=record["justification"],
             adr_id=record["adr_id"],
             adr_path=record["adr_path"],
-            char_interval=char_interval,
             specificity=record.get("specificity", 0.0),
         )
 
@@ -223,7 +214,6 @@ class GraphStore:
                 "RETURN src.fqn AS subject, type(r) AS predicate, tgt.fqn AS object, "
                 "r.justification AS justification, r.adr_id AS adr_id, "
                 "r.adr_path AS adr_path, "
-                "r.char_start AS char_start, r.char_end AS char_end, "
                 "r.specificity AS specificity",
                 adr_id=adr_id,
                 predicate_types=PREDICATE_VALUES,
@@ -238,7 +228,6 @@ class GraphStore:
                 "RETURN src.fqn AS subject, type(r) AS predicate, tgt.fqn AS object, "
                 "r.justification AS justification, r.adr_id AS adr_id, "
                 "r.adr_path AS adr_path, "
-                "r.char_start AS char_start, r.char_end AS char_end, "
                 "r.specificity AS specificity",
                 predicate_types=PREDICATE_VALUES,
             )
@@ -312,7 +301,6 @@ class GraphStore:
                 "RETURN n.fqn AS subject, type(r) AS predicate, tgt.fqn AS object, "
                 "r.justification AS justification, r.adr_id AS adr_id, "
                 "r.adr_path AS adr_path, "
-                "r.char_start AS char_start, r.char_end AS char_end, "
                 "r.specificity AS specificity",
                 file_path=file_path,
                 predicate_types=PREDICATE_VALUES,
@@ -323,7 +311,6 @@ class GraphStore:
                 "RETURN src.fqn AS subject, type(r) AS predicate, n.fqn AS object, "
                 "r.justification AS justification, r.adr_id AS adr_id, "
                 "r.adr_path AS adr_path, "
-                "r.char_start AS char_start, r.char_end AS char_end, "
                 "r.specificity AS specificity",
                 file_path=file_path,
                 predicate_types=PREDICATE_VALUES,

@@ -3,14 +3,11 @@
 Public interface under test:
     add_external_nodes: create EXTERNAL nodes for unmatched import targets
     merge_constraints: unify Track A ADG + Track B constraint edges into merged ADG
-    resolve_orphans: LLM-backed naming resolution for orphan FQN patterns
-    gather_candidates: collect ADG nodes as resolution candidates via prefix-scoped walk
 """
 
 from __future__ import annotations
 
 import pytest
-from unittest.mock import MagicMock
 
 from services.fqn import FQN
 from services.models import (
@@ -25,8 +22,6 @@ from services.resolver import MatchStatus, NameResolver
 from services.adg.merge import (
     add_external_nodes,
     merge_constraints,
-    resolve_orphans,
-    gather_candidates,
 )
 
 
@@ -71,7 +66,6 @@ def sample_constraints() -> list[ConstraintEdge]:
             predicate=PredicateType.REQUIRES_IMPLEMENTATION,
             object="app.auth.middleware",
             justification="All API endpoints must implement authentication.",
-            char_interval=(10, 80),
             adr_id="ADR-003",
             adr_path="docs/adr/003-auth-middleware.md",
         ),
@@ -80,7 +74,6 @@ def sample_constraints() -> list[ConstraintEdge]:
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
             object="logging",
             justification="No service shall use bare logging directly.",
-            char_interval=(20, 90),
             adr_id="ADR-005",
             adr_path="docs/adr/005-centralized-logging.md",
         ),
@@ -154,7 +147,6 @@ class TestMergeConstraints:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="logging",
                 justification="No bare logging.",
-                char_interval=(20, 90),
                 adr_id="ADR-005",
                 adr_path="docs/adr/005-logging.md",
             ),
@@ -170,7 +162,6 @@ class TestMergeConstraints:
                 predicate=PredicateType.REQUIRES_IMPLEMENTATION,
                 object="app.auth.middleware",
                 justification="test",
-                char_interval=(0, 10),
                 adr_id="ADR-001",
                 adr_path="docs/adr/001.md",
             ),
@@ -185,7 +176,6 @@ class TestMergeConstraints:
                 predicate=PredicateType.REQUIRES_IMPLEMENTATION,
                 object="app.auth.middleware",
                 justification="test",
-                char_interval=(0, 10),
                 adr_id="ADR-003",
                 adr_path="docs/adr/003.md",
             ),
@@ -210,7 +200,6 @@ class TestMergeConstraintsIncremental:
                 predicate=PredicateType.REQUIRES_IMPLEMENTATION,
                 object="app.auth.middleware",
                 justification="Old requirement.",
-                char_interval=(10, 80),
                 adr_id="ADR-003",
                 adr_path="docs/adr/003-auth-middleware.md",
             ),
@@ -224,7 +213,6 @@ class TestMergeConstraintsIncremental:
                 predicate=PredicateType.REQUIRES_DEPENDENCY,
                 object="app.auth.middleware",
                 justification="Updated: dependency, not implementation.",
-                char_interval=(15, 90),
                 adr_id="ADR-003",
                 adr_path="docs/adr/003-auth-middleware.md",
             ),
@@ -233,7 +221,6 @@ class TestMergeConstraintsIncremental:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="app.db.mysql",
                 justification="Also added: no direct DB access.",
-                char_interval=(100, 180),
                 adr_id="ADR-003",
                 adr_path="docs/adr/003-auth-middleware.md",
             ),
@@ -256,7 +243,6 @@ class TestMergeConstraintsIncremental:
                 predicate=PredicateType.REQUIRES_IMPLEMENTATION,
                 object="app.auth.middleware",
                 justification="Auth required.",
-                char_interval=(10, 80),
                 adr_id="ADR-003",
                 adr_path="docs/adr/003.md",
             ),
@@ -267,7 +253,6 @@ class TestMergeConstraintsIncremental:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="logging",
                 justification="No bare logging.",
-                char_interval=(20, 90),
                 adr_id="ADR-005",
                 adr_path="docs/adr/005.md",
             ),
@@ -281,7 +266,6 @@ class TestMergeConstraintsIncremental:
                 predicate=PredicateType.REQUIRES_DEPENDENCY,
                 object="app.auth.middleware",
                 justification="Updated specific rule.",
-                char_interval=(5, 50),
                 adr_id="ADR-003",
                 adr_path="docs/adr/003.md",
             ),
@@ -364,7 +348,6 @@ class TestConstraintEdgeSpecificity:
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
             object="logging",
             justification="test",
-            char_interval=(0, 10),
             adr_id="ADR-001",
             adr_path="docs/adr/001.md",
         )
@@ -376,318 +359,8 @@ class TestConstraintEdgeSpecificity:
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
             object="logging",
             justification="test",
-            char_interval=(0, 10),
             adr_id="ADR-001",
             adr_path="docs/adr/001.md",
             specificity=3.0,
         )
         assert edge.specificity == 3.0
-
-
-# ===========================================================================
-# 6. gather_candidates: prefix-scoped walk of ADG nodes
-# ===========================================================================
-
-
-class TestGatherCandidates:
-    def test_candidates_from_partial_prefix_match(self, sample_adg: ADG) -> None:
-        candidates = gather_candidates("app.api.*", sample_adg.nodes)
-        candidate_fqns = {str(c.fqn) for c in candidates}
-        assert "app.api" in candidate_fqns
-        assert "app.api.users" in candidate_fqns
-        assert "app.api.orders" in candidate_fqns
-        assert "app.auth" not in candidate_fqns
-
-    def test_candidates_from_first_segment_mismatch(self, sample_adg: ADG) -> None:
-        candidates = gather_candidates("web.handlers.*", sample_adg.nodes)
-        candidate_fqns = {str(c.fqn) for c in candidates}
-        assert len(candidate_fqns) == len(sample_adg.nodes)
-
-    def test_candidates_from_middle_mismatch(self, sample_adg: ADG) -> None:
-        candidates = gather_candidates("app.routes.*", sample_adg.nodes)
-        candidate_fqns = {str(c.fqn) for c in candidates}
-        assert "app" in candidate_fqns
-        assert "app.api" in candidate_fqns
-        assert "app.auth" in candidate_fqns
-        assert "app.services" in candidate_fqns
-
-    def test_candidates_exact_match_no_orphan(self, sample_adg: ADG) -> None:
-        candidates = gather_candidates("app.auth.middleware", sample_adg.nodes)
-        assert candidates == []
-
-    def test_candidates_wildcard_exact_prefix_match(self, sample_adg: ADG) -> None:
-        candidates = gather_candidates("app.auth.*", sample_adg.nodes)
-        candidate_fqns = {str(c.fqn) for c in candidates}
-        assert "app.auth" in candidate_fqns
-        assert "app.auth.middleware" in candidate_fqns
-
-    def test_candidates_empty_adg(self) -> None:
-        candidates = gather_candidates("app.api.*", [])
-        assert candidates == []
-
-
-# ===========================================================================
-# 7. resolve_orphans: LLM-backed naming resolution with injectable callback
-# ===========================================================================
-
-
-class TestResolveOrphans:
-    @pytest.fixture
-    def routes_adg(self) -> ADG:
-        """ADG using 'routes' instead of 'api' (the naming mismatch scenario)."""
-        nodes = [
-            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
-            FQNNode(fqn=FQN.from_dotted("app.routes"), kind=FQNKind.MODULE, file_path="app/routes/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
-            FQNNode(fqn=FQN.from_dotted("app.routes.users"), kind=FQNKind.MODULE, file_path="app/routes/users.py", line_start=0, line_end=50, start_byte=0, end_byte=0),
-            FQNNode(fqn=FQN.from_dotted("app.auth"), kind=FQNKind.MODULE, file_path="app/auth/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
-            FQNNode(fqn=FQN.from_dotted("app.auth.middleware"), kind=FQNKind.MODULE, file_path="app/auth/middleware.py", line_start=0, line_end=60, start_byte=0, end_byte=0),
-        ]
-        edges = [
-            Edge(source="app", target="app.routes", kind="CONTAINS"),
-            Edge(source="app.routes", target="app.routes.users", kind="CONTAINS"),
-            Edge(source="app", target="app.auth", kind="CONTAINS"),
-            Edge(source="app.auth", target="app.auth.middleware", kind="CONTAINS"),
-            Edge(source="app.routes.users", target="app.auth.middleware", kind="IMPORTS"),
-        ]
-        return ADG(nodes=nodes, edges=edges)
-
-    def test_resolve_remaps_orphan_subject(self, routes_adg: ADG) -> None:
-        """LLM callback remaps orphan subject 'app.api.*' to 'app.routes.*'."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.middleware",
-                justification="All API endpoints must import auth middleware.",
-                char_interval=(10, 80),
-                adr_id="ADR-002",
-                adr_path="docs/adr/002.md",
-            ),
-        ]
-
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            return "app.routes.*"
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
-        assert constraints[0].subject == "app.routes.*"
-        assert "app.api.*" not in remaining_orphans
-
-    def test_resolve_remaps_orphan_object(self, routes_adg: ADG) -> None:
-        """LLM callback remaps orphan object pattern."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.routes.*",
-                predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.guard",
-                justification="Must use auth guard for authentication.",
-                char_interval=(10, 80),
-                adr_id="ADR-004",
-                adr_path="docs/adr/004.md",
-            ),
-        ]
-
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            return "app.auth.middleware"
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
-        assert constraints[0].object == "app.auth.middleware"
-        assert "app.auth.guard" not in remaining_orphans
-
-    def test_resolve_no_mapping_leaves_orphan(self, routes_adg: ADG) -> None:
-        """When LLM callback returns 'no_mapping', the orphan stays unchanged."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.middleware",
-                justification="All API endpoints must import auth middleware.",
-                char_interval=(10, 80),
-                adr_id="ADR-002",
-                adr_path="docs/adr/002.md",
-            ),
-        ]
-
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            return "no_mapping"
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
-        assert constraints[0].subject == "app.api.*"
-        assert "app.api.*" in remaining_orphans
-
-    def test_resolve_both_sides_orphaned_separate_calls(self, routes_adg: ADG) -> None:
-        """When both subject and object are orphaned, two separate LLM calls are made."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.guard",
-                justification="All API endpoints must use auth guard.",
-                char_interval=(10, 80),
-                adr_id="ADR-002",
-                adr_path="docs/adr/002.md",
-            ),
-        ]
-
-        call_count = 0
-        side_effects = ["app.routes.*", "app.auth.middleware"]
-
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            nonlocal call_count
-            result = side_effects[call_count]
-            call_count += 1
-            return result
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
-        assert call_count == 2
-        assert constraints[0].subject == "app.routes.*"
-        assert constraints[0].object == "app.auth.middleware"
-
-    def test_resolve_in_place_modification(self, routes_adg: ADG) -> None:
-        """Remapping modifies ConstraintEdge in-place."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.middleware",
-                justification="All API endpoints must import auth middleware.",
-                char_interval=(10, 80),
-                adr_id="ADR-002",
-                adr_path="docs/adr/002.md",
-            ),
-        ]
-        original_id = id(constraints[0])
-
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            return "app.routes.*"
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
-        assert id(constraints[0]) == original_id
-        assert constraints[0].subject == "app.routes.*"
-
-    def test_resolve_no_orphans_skips_llm(self, sample_adg: ADG) -> None:
-        """When all constraints match ADG nodes, no LLM callback is made."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.middleware",
-                justification="All API endpoints must import auth middleware.",
-                char_interval=(10, 80),
-                adr_id="ADR-003",
-                adr_path="docs/adr/003.md",
-            ),
-        ]
-
-        call_count = 0
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            nonlocal call_count
-            call_count += 1
-            return "no_mapping"
-
-        resolver = NameResolver({n.fqn for n in sample_adg.nodes})
-        remaining_orphans = resolve_orphans(sample_adg, constraints, resolver, llm_resolver=mock_llm)
-        assert call_count == 0
-        assert constraints[0].subject == "app.api.*"
-        assert len(remaining_orphans) == 0
-
-    def test_resolve_no_llm_resolver_tracks_orphans(self, routes_adg: ADG) -> None:
-        """Without an LLM resolver, orphans are just tracked, not remapped."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.middleware",
-                justification="All API endpoints must import auth middleware.",
-                char_interval=(10, 80),
-                adr_id="ADR-002",
-                adr_path="docs/adr/002.md",
-            ),
-        ]
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=None)
-        assert "app.api.*" in remaining_orphans
-        assert constraints[0].subject == "app.api.*"
-
-    def test_remapped_constraint_rematched(self, routes_adg: ADG) -> None:
-        """After remapping, the constraint should match ADG nodes via resolver."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.middleware",
-                justification="All API endpoints must import auth middleware.",
-                char_interval=(10, 80),
-                adr_id="ADR-002",
-                adr_path="docs/adr/002.md",
-            ),
-        ]
-
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            return "app.routes.*"
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
-        assert constraints[0].subject == "app.routes.*"
-
-        # After remapping, merge_constraints should match
-        result = merge_constraints(routes_adg, constraints)
-        report = NameResolver({n.fqn for n in result.nodes}).match(constraints[0].subject)
-        assert report.status == MatchStatus.WILDCARD
-
-    def test_resolve_remapping_creates_self_loop_is_reverted(self, routes_adg: ADG) -> None:
-        """When LLM remap would collapse both orphaned sides to same FQN, revert second remap."""
-        # Construct with valid distinct values then mutate object (bypasses __post_init__)
-        c = ConstraintEdge(
-            subject="app.api.*",
-            predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-            object="__placeholder__",
-            justification="Only API layer implements API logic.",
-            char_interval=(10, 80),
-            adr_id="ADR-010",
-            adr_path="docs/adr/010.md",
-        )
-        c.object = "app.api.*"
-        constraints = [c]
-
-        # Both sides orphaned; LLM remaps both to "app.routes.*"
-        # Second remap would create self-loop, should be reverted
-        call_count = 0
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            nonlocal call_count
-            call_count += 1
-            return "app.routes.*"
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
-        # First remap (subject) succeeds, second remap (object) would create self-loop, reverted
-        assert len(remaining_orphans) > 0
-
-    def test_resolve_remapping_subject_collides_with_object(self, routes_adg: ADG) -> None:
-        """When remapping one side makes it equal to the other, revert the remap."""
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                object="app.auth.middleware",
-                justification="API must implement auth.",
-                char_interval=(10, 80),
-                adr_id="ADR-011",
-                adr_path="docs/adr/011.md",
-            ),
-        ]
-
-        # LLM remaps subject "app.api.*" to "app.auth.middleware" which equals the object
-        def mock_llm(pattern: str, candidates: list, justification: str) -> str:
-            return "app.auth.middleware"
-
-        resolver = NameResolver({n.fqn for n in routes_adg.nodes})
-        remaining_orphans = resolve_orphans(routes_adg, constraints, resolver, llm_resolver=mock_llm)
-        # Remap reverted because it would create subject == object
-        assert "app.api.*" in remaining_orphans
-        assert constraints[0].subject == "app.api.*"

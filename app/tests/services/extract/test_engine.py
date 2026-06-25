@@ -32,8 +32,6 @@ def _make_extraction(
     predicate: str = "prohibits_dependency",
     object_: str = "db.mysql",
     justification: str = "Direct MySQL connections are prohibited.",
-    char_start: int = 45,
-    char_end: int = 120,
 ) -> MagicMock:
     """Create a mock langextract Extraction object."""
     extraction = MagicMock()
@@ -45,30 +43,6 @@ def _make_extraction(
         "object": object_,
         "justification": justification,
     }
-    # char_interval is an object with start_pos and end_pos
-    char_interval = MagicMock()
-    char_interval.start_pos = char_start
-    char_interval.end_pos = char_end
-    extraction.char_interval = char_interval
-    return extraction
-
-
-def _make_extraction_no_char_interval(
-    subject: str = "services.*",
-    predicate: str = "prohibits_dependency",
-    object_: str = "db.mysql",
-    justification: str = "No grounding.",
-) -> MagicMock:
-    """Create a mock extraction without char_interval (should be skipped)."""
-    extraction = MagicMock()
-    extraction.extraction_class = "adr_constraint"
-    extraction.attributes = {
-        "subject": subject,
-        "predicate": predicate,
-        "object": object_,
-        "justification": justification,
-    }
-    extraction.char_interval = None
     return extraction
 
 
@@ -254,16 +228,12 @@ class TestExtractConstraintsHappyPath:
                     predicate="prohibits_dependency",
                     object_="db.mysql",
                     justification="Direct MySQL connections prohibited.",
-                    char_start=45,
-                    char_end=120,
                 ),
                 _make_extraction(
                     subject="services.*",
                     predicate="requires_implementation",
                     object_="db.query",
                     justification="All services must route queries through this interface.",
-                    char_start=10,
-                    char_end=80,
                 ),
             ]
         )
@@ -626,27 +596,6 @@ class TestExtractConstraintsMalformed:
     """Malformed extractions are skipped and reported as errors."""
 
     @patch("services.extract.engine.lx.extract")
-    def test_missing_char_interval_accepted(self, mock_extract: MagicMock) -> None:
-        """Extractions without char_interval are accepted with None interval."""
-        from services.extract import ADRExtractor, LangExtractConfig
-
-        mock_extract.return_value = _make_langextract_result(
-            [_make_extraction_no_char_interval()]
-        )
-
-        config = LangExtractConfig(api_key_env="TEST_API_KEY")
-        extractor = ADRExtractor(config=config)
-        result = extractor.extract_constraints(
-            adr_text=ADR_001_TEXT,
-            adr_id="ADR-001",
-            adr_path="docs/adr/ADR-001-mysql-storage.md",
-        )
-
-        assert len(result.constraints) == 1
-        assert result.constraints[0].char_interval is None
-        assert len(result.errors) == 0
-
-    @patch("services.extract.engine.lx.extract")
     def test_invalid_predicate_skipped(self, mock_extract: MagicMock) -> None:
         """Extractions with invalid predicates are skipped and logged."""
         from services.extract import ADRExtractor, LangExtractConfig
@@ -676,10 +625,8 @@ class TestExtractConstraintsMalformed:
             predicate="prohibits_dependency",
             object_="db.mysql",
             justification="Direct MySQL connections prohibited.",
-            char_start=45,
-            char_end=120,
         )
-        malformed = _make_extraction_no_char_interval()
+        malformed = _make_extraction(predicate="requires")
 
         mock_extract.return_value = _make_langextract_result([valid, malformed])
 
@@ -691,9 +638,8 @@ class TestExtractConstraintsMalformed:
             adr_path="docs/adr/ADR-001-mysql-storage.md",
         )
 
-        assert len(result.constraints) == 2
-        assert len(result.errors) == 0
-        assert result.constraints[1].char_interval is None
+        assert len(result.constraints) == 1
+        assert len(result.errors) == 1
 
 
 # ===========================================================================

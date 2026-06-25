@@ -57,7 +57,6 @@ def sample_adg_with_constraints() -> ADG:
             predicate=PredicateType.REQUIRES_IMPLEMENTATION,
             object="app.auth.middleware",
             justification="All API endpoints must implement authentication.",
-            char_interval=(10, 80),
             adr_id="ADR-003",
             adr_path="docs/adr/003-auth-middleware.md",
             specificity=2.5,
@@ -67,7 +66,6 @@ def sample_adg_with_constraints() -> ADG:
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
             object="logging",
             justification="No service shall use bare logging directly.",
-            char_interval=(20, 90),
             adr_id="ADR-005",
             adr_path="docs/adr/005-centralized-logging.md",
             specificity=2.5,
@@ -209,7 +207,6 @@ class TestConstraintEdgeCRUD:
             predicate=PredicateType.REQUIRES_IMPLEMENTATION,
             object="app.auth.middleware",
             justification="Auth required.",
-            char_interval=(10, 80),
             adr_id="ADR-003",
             adr_path="docs/adr/003.md",
             specificity=4.0,
@@ -228,12 +225,12 @@ class TestConstraintEdgeCRUD:
         ce1 = ConstraintEdge(
             subject="app.api.users", predicate=PredicateType.REQUIRES_IMPLEMENTATION,
             object="app.auth.middleware", justification="Auth.",
-            char_interval=(10, 80), adr_id="ADR-003", adr_path="docs/adr/003.md", specificity=4.0,
+            adr_id="ADR-003", adr_path="docs/adr/003.md", specificity=4.0,
         )
         ce2 = ConstraintEdge(
             subject="app.services.*", predicate=PredicateType.PROHIBITS_DEPENDENCY,
             object="logging", justification="No bare logging.",
-            char_interval=(20, 90), adr_id="ADR-005", adr_path="docs/adr/005.md", specificity=2.5,
+            adr_id="ADR-005", adr_path="docs/adr/005.md", specificity=2.5,
         )
         neo4j_store.store_constraint_edge(ce1)
         neo4j_store.store_constraint_edge(ce2)

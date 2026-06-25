@@ -75,7 +75,6 @@ def _make_constraint(
         predicate=predicate,
         object=object_,
         justification="Test constraint",
-        char_interval=(0, 50),
         adr_id=adr_id,
         adr_path=adr_path,
     )

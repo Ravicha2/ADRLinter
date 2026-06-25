@@ -4,7 +4,7 @@ Public interface under test:
     PredicateType: enum with PROHIBITS_DEPENDENCY, REQUIRES_IMPLEMENTATION,
                          REQUIRES_DEPENDENCY, PROHIBITS_IMPLEMENTATION
     ConstraintEdge: dataclass with subject, predicate, object, justification,
-                     char_interval, adr_id, adr_path
+                     adr_id, adr_path
     ExtractionError: dataclass with message, adr_path, error_type
     ExtractionResult: dataclass with constraints and errors
 """
@@ -67,7 +67,6 @@ class TestConstraintEdgeConstruction:
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
             object="app.db.mysql",
             justification="Direct MySQL connections are prohibited for services.",
-            char_interval=(45, 120),
             adr_id="ADR-001",
             adr_path="docs/adr/ADR-001-mysql-storage.md",
         )
@@ -82,7 +81,6 @@ class TestConstraintEdgeConstruction:
             predicate=PredicateType.REQUIRES_IMPLEMENTATION,
             object="app.auth.middleware",
             justification="All API endpoints must implement authentication.",
-            char_interval=(10, 80),
             adr_id="ADR-003",
             adr_path="docs/adr/ADR-003-auth-middleware.md",
         )
@@ -95,7 +93,6 @@ class TestConstraintEdgeConstruction:
             predicate=PredicateType.REQUIRES_DEPENDENCY,
             object="app.auth.middleware",
             justification="All API endpoints must use the auth middleware.",
-            char_interval=(10, 80),
             adr_id="ADR-004",
             adr_path="docs/adr/ADR-004-auth-required.md",
         )
@@ -108,7 +105,6 @@ class TestConstraintEdgeConstruction:
             predicate=PredicateType.PROHIBITS_IMPLEMENTATION,
             object="app.auth.middleware",
             justification="No service shall implement its own authentication logic.",
-            char_interval=(20, 90),
             adr_id="ADR-005",
             adr_path="docs/adr/ADR-005-auth-centralized.md",
         )
@@ -126,7 +122,6 @@ class TestConstraintEdgeConstruction:
             predicate=PredicateType.REQUIRES_IMPLEMENTATION,
             object="app.db.postgres",
             justification="New services must use PostgreSQL.",
-            char_interval=(0, 50),
             adr_id="ADR-004",
             adr_path="docs/adr/ADR-004-postgres-migration.md",
         )
@@ -139,39 +134,11 @@ class TestConstraintEdgeConstruction:
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
             object="app.services.<other_service>.*",
             justification="Services must not depend on other services.",
-            char_interval=(0, 60),
             adr_id="ADR-005",
             adr_path="docs/adr/ADR-005-microservices-boundary.md",
         )
         assert ".*" in edge.subject
         assert ".*" in edge.object
-
-    def test_char_interval_as_tuple(self) -> None:
-        """char_interval is a tuple of (start, end) character positions."""
-        edge = ConstraintEdge(
-            subject="app.api.*",
-            predicate=PredicateType.PROHIBITS_DEPENDENCY,
-            object="app.auth.impl",
-            justification="No direct auth implementation.",
-            char_interval=(100, 200),
-            adr_id="ADR-003",
-            adr_path="docs/adr/ADR-003-auth-middleware.md",
-        )
-        assert edge.char_interval == (100, 200)
-        assert isinstance(edge.char_interval, tuple)
-
-    def test_char_interval_none_allowed(self) -> None:
-        """char_interval is optional; None means no source traceability."""
-        edge = ConstraintEdge(
-            subject="app.api.*",
-            predicate=PredicateType.PROHIBITS_DEPENDENCY,
-            object="app.auth.impl",
-            justification="No direct auth implementation.",
-            char_interval=None,
-            adr_id="ADR-003",
-            adr_path="docs/adr/ADR-003-auth-middleware.md",
-        )
-        assert edge.char_interval is None
 
 
 # ===========================================================================
@@ -189,7 +156,6 @@ class TestConstraintEdgeValidation:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="app.db.mysql",
                 justification="Test",
-                char_interval=(0, 10),
                 adr_id="ADR-001",
                 adr_path="docs/adr/ADR-001.md",
             )
@@ -201,7 +167,6 @@ class TestConstraintEdgeValidation:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="",
                 justification="Test",
-                char_interval=(0, 10),
                 adr_id="ADR-001",
                 adr_path="docs/adr/ADR-001.md",
             )
@@ -214,7 +179,6 @@ class TestConstraintEdgeValidation:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="app.db.mysql",
                 justification="",
-                char_interval=(0, 10),
                 adr_id="ADR-001",
                 adr_path="docs/adr/ADR-001.md",
             )
@@ -227,7 +191,6 @@ class TestConstraintEdgeValidation:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="app.db.mysql",
                 justification="Test justification",
-                char_interval=(0, 10),
                 adr_path="docs/adr/ADR-001.md",
             )
 
@@ -239,34 +202,7 @@ class TestConstraintEdgeValidation:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="app.db.mysql",
                 justification="Test justification",
-                char_interval=(0, 10),
                 adr_id="ADR-001",
-            )
-
-    def test_inverted_char_interval_rejected(self) -> None:
-        """char_interval with end <= start is rejected."""
-        with pytest.raises(ValueError, match="end must be > start"):
-            ConstraintEdge(
-                subject="app.services.*",
-                predicate=PredicateType.PROHIBITS_DEPENDENCY,
-                object="app.db.mysql",
-                justification="Test",
-                char_interval=(200, 100),
-                adr_id="ADR-001",
-                adr_path="docs/adr/ADR-001.md",
-            )
-
-    def test_negative_char_interval_start_rejected(self) -> None:
-        """char_interval with negative start is rejected."""
-        with pytest.raises(ValueError, match="start must be >= 0"):
-            ConstraintEdge(
-                subject="app.services.*",
-                predicate=PredicateType.PROHIBITS_DEPENDENCY,
-                object="app.db.mysql",
-                justification="Test",
-                char_interval=(-5, 10),
-                adr_id="ADR-001",
-                adr_path="docs/adr/ADR-001.md",
             )
 
     def test_self_loop_rejected(self) -> None:
@@ -302,7 +238,7 @@ class TestExtractionError:
 
     def test_malformed_extraction_error(self) -> None:
         err = ExtractionError(
-            message="Extraction missing char_interval",
+            message="Extraction missing fields",
             adr_path="docs/adr/ADR-002.md",
             error_type="malformed_extraction",
         )
@@ -333,7 +269,6 @@ class TestExtractionResult:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="app.db.mysql",
                 justification="Direct MySQL connections prohibited.",
-                char_interval=(45, 120),
                 adr_id="ADR-001",
                 adr_path="docs/adr/ADR-001-mysql-storage.md",
             ),
@@ -364,14 +299,13 @@ class TestExtractionResult:
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
                 object="app.db.mysql",
                 justification="Direct MySQL connections prohibited.",
-                char_interval=(45, 120),
                 adr_id="ADR-001",
                 adr_path="docs/adr/ADR-001-mysql-storage.md",
             ),
         ]
         errors = [
             ExtractionError(
-                message="Extraction missing char_interval, skipped",
+                message="Extraction skipped, malformed",
                 adr_path="docs/adr/ADR-001-mysql-storage.md",
                 error_type="malformed_extraction",
             ),
@@ -395,7 +329,7 @@ class TestExtractionResult:
                 error_type="parse_failure",
             ),
             ExtractionError(
-                message="Extraction missing char_interval",
+                message="Extraction missing fields",
                 adr_path="docs/adr/ADR-002.md",
                 error_type="malformed_extraction",
             ),

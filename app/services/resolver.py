@@ -7,11 +7,8 @@ in treesitter.py, and duplicated fqn_matches_pattern in engine.py.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from enum import Enum
-from pathlib import Path
-from typing import Callable
 
 from services.fqn import FQN
 from services.models import FQNNode
@@ -28,10 +25,6 @@ class MatchReport:
     status: MatchStatus
     matched: tuple[tuple[FQN, MatchStatus], ...] = ()
     specificity: float = 0.0
-
-
-# LLMResolver type for injectable callback, decouples openai from merge logic
-LLMResolver = Callable[[str, list[FQNNode], str], str]
 
 
 def fqn_matches_pattern(fqn: FQN, pattern: str) -> MatchStatus:
@@ -108,23 +101,3 @@ class NameResolver:
             matched=matched,
             specificity=compute_specificity(pattern, best),
         )
-
-
-@dataclass
-class ResolutionLogEntry:
-    timestamp: str
-    pattern: str
-    candidate_fqns: list[str]
-    justification: str
-    model_id: str
-    remapped: str
-    duration_ms: float
-
-
-def write_resolution_log(entry: ResolutionLogEntry, log_path: Path) -> None:
-    try:
-        log_path.parent.mkdir(parents=True, exist_ok=True)
-        with log_path.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry.__dict__, default=str) + "\n")
-    except Exception:
-        pass

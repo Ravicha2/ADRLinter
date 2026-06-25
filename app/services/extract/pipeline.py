@@ -64,7 +64,6 @@ def write_constraints(results: list[ExtractionResult], output_path: Path) -> Non
                 "predicate": c.predicate.value,
                 "object": c.object,
                 "justification": c.justification,
-                "char_interval": list(c.char_interval) if c.char_interval is not None else None,
                 "adr_id": c.adr_id,
                 "adr_path": c.adr_path,
             })
