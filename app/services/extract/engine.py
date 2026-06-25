@@ -19,6 +19,7 @@ from services.extract.io import parse_adr_id
 from services.extract.logging import ADRLogEntry, write_log
 from services.extract.prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
 from services.models import (
+    ADG,
     ConstraintEdge,
     ExtractionError,
     ExtractionResult,
@@ -26,10 +27,56 @@ from services.models import (
 )
 
 
+def derive_package_context(adg: ADG) -> list[str]:
+    """Return the root package plus its immediate children, excluding the
+    test suite's root. Source: adg.nodes. ponytail: bounded by the repo's
+    natural width; deeper subpackages are not surfaced since ADRs rarely name
+    them, and orphans are inert (no false violations).
+    """
+    if not adg.nodes:
+        return []
+    top_counts: dict[str, int] = {}
+    for n in adg.nodes:
+        parts = n.fqn.parts
+        if not parts:
+            continue
+        top = parts[0]
+        if top == "tests":
+            continue
+        top_counts[top] = top_counts.get(top, 0) + 1
+    if not top_counts:
+        return []
+    root = max(top_counts.items(), key=lambda kv: kv[1])[0]
+    children: set[str] = set()
+    for n in adg.nodes:
+        parts = n.fqn.parts
+        if len(parts) < 2 or parts[0] != root:
+            continue
+        children.add(".".join(parts[:2]))
+    return [root, *sorted(children)]
+
+
 class ADRExtractor:
-    def __init__(self, config: LangExtractConfig, log_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        config: LangExtractConfig,
+        log_path: Path | None = None,
+        package_context: list[str] | None = None,
+    ) -> None:
         self.config = config
         self.log_path = log_path
+        self.package_context = package_context
+
+    def _build_prompt(self) -> str:
+        if not self.package_context:
+            return PROMPT_DESCRIPTION
+        packages = ", ".join(self.package_context)
+        return (
+            PROMPT_DESCRIPTION
+            + "\nCodebase packages (use these as constraint subjects; root is codebase-wide):\n"
+            + packages
+            + "\n"
+        )
 
     def extract_constraints(
         self, adr_text: str, adr_id: str, adr_path: str
@@ -51,7 +98,7 @@ class ADRExtractor:
             )
             result = lx.extract(
                 text_or_documents=adr_text,
-                prompt_description=PROMPT_DESCRIPTION,
+                prompt_description=self._build_prompt(),
                 examples=FEW_SHOT_EXAMPLES,
                 config=model_config,
                 prompt_validation_level=lx.prompt_validation.PromptValidationLevel.OFF,

@@ -1,7 +1,7 @@
 """Diff Processor: identify changed FQNs from a git commit diff."""
 
 from services.fqn import FQN
-from services.models import ADG, ChangedFQN, CommitDiff, DiffResult, FQNKind
+from services.models import ADG, ChangedFQN, CommitDiff, DiffResult, FileChange, FQNKind
 from services.adg import parse_file
 
 def process_diff(commit_diff: CommitDiff) -> DiffResult:
@@ -16,6 +16,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
 
         status = file_change.status
         module_fqn = FQN.from_path(path)
+        before = len(changed_fqns)
 
         if status == "added":
             source = commit_diff.file_contents.get(path, b"")
@@ -85,6 +86,13 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                         make_changed_fqn(node, "added", path, module_fqn)
                     )
 
+        # ponytail: if no def-level FQN was emitted for this .py file but the
+        # file bytes actually changed, emit a module-level ChangedFQN so BFS
+        # still has a starting point. Covers settings.py / config.py edits that
+        # only touch module-level assignments.
+        if len(changed_fqns) == before:
+            _maybe_emit_module_fqn(changed_fqns, file_change, module_fqn, commit_diff)
+
     return DiffResult(
         commit_sha=commit_diff.commit_sha,
         parent_sha=commit_diff.parent_sha,
@@ -107,6 +115,44 @@ def make_changed_fqn(
           enclosing_class=enclosing_class,
           enclosing_module=module_fqn,
       )
+
+
+def _maybe_emit_module_fqn(
+        changed_fqns: list[ChangedFQN],
+        file_change: FileChange,
+        module_fqn: FQN,
+        commit_diff: CommitDiff,
+) -> None:
+    """Emit a module-level ChangedFQN if the .py file bytes changed but no def FQN was produced."""
+    status = file_change.status
+    path = file_change.path
+    new_src = commit_diff.file_contents.get(path, b"")
+    old_src = commit_diff.parent_contents.get(path, b"")
+
+    if status == "added" and new_src:
+        change_type = "added"
+    elif status == "deleted" and old_src:
+        change_type = "deleted"
+    elif status == "modified" and new_src != old_src:
+        change_type = "modified"
+    elif status == "renamed":
+        old_path = file_change.old_path or path
+        if commit_diff.parent_contents.get(old_path, b"") or new_src:
+            change_type = "added"
+        else:
+            return
+    else:
+        return
+
+    changed_fqns.append(
+        ChangedFQN(
+            fqn=module_fqn,
+            change_type=change_type,
+            file_path=path,
+            enclosing_class=None,
+            enclosing_module=module_fqn,
+        )
+    )
 
 
 def augment_adg(adg: ADG, commit_diff: CommitDiff) -> None:

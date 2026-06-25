@@ -13,10 +13,14 @@ from services.models import CommitDiff, ExtractionError, ExtractionResult
 
 
 def extract_changed_adrs(
-    diff: CommitDiff, adr_dir: str, config: LangExtractConfig, log_path: Path | None = None
+    diff: CommitDiff,
+    adr_dir: str,
+    config: LangExtractConfig,
+    log_path: Path | None = None,
+    package_context: list[str] | None = None,
 ) -> list[ExtractionResult]:
     """Extract constraints from ADR files that changed (incremental pipeline)."""
-    extractor = ADRExtractor(config, log_path=log_path)
+    extractor = ADRExtractor(config, log_path=log_path, package_context=package_context)
     results: list[ExtractionResult] = []
     for change in diff.changed_files:
         if is_adr_file(change, adr_dir):
@@ -37,10 +41,14 @@ def extract_changed_adrs(
 
 
 def extract_all_adrs(
-    repo_path: Path, adr_dir: str, config: LangExtractConfig, log_path: Path | None = None
+    repo_path: Path,
+    adr_dir: str,
+    config: LangExtractConfig,
+    log_path: Path | None = None,
+    package_context: list[str] | None = None,
 ) -> list[ExtractionResult]:
     """Extract constraints from all ADR files (seed build)."""
-    extractor = ADRExtractor(config, log_path=log_path)
+    extractor = ADRExtractor(config, log_path=log_path, package_context=package_context)
     return extractor.extract_from_directory(repo_path / adr_dir)
 
 

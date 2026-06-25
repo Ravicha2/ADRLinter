@@ -18,6 +18,7 @@ from services.cpt import GitAdapter, process_diff
 from services.cpt.diff_processor import augment_adg
 from services.cpt.engine import detect as cpt_detect
 from services.extract import extract_all_adrs
+from services.extract.engine import derive_package_context
 from services.graph.connector import GraphStore
 from services.models import ConstraintEdge, DiffResult, FQNKind
 
@@ -76,7 +77,7 @@ def detect(
         raise typer.Exit(code=1)
     
     console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
-    
+
     # 1. Fetch the commit diff from git
     adapter = GitAdapter()
     try:
@@ -84,7 +85,7 @@ def detect(
     except ValueError as e:
         console.print(f"[red]Git error:[/] {e}")
         raise typer.Exit(code=1)
-    
+
     # 2. Process the diff to idenity changed FQN
     result: DiffResult = process_diff(commit_diff)
 
@@ -139,10 +140,11 @@ def detect(
     console.print()
     console.print("[bold]Building ADG...[/]")
     adg = parse_repo(repo_path)
+    package_context = derive_package_context(adg)
 
     console.print("[bold]Extracting ADR constraints...[/]")
     all_constraints: list[ConstraintEdge] = []
-    for ext_result in extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract):
+    for ext_result in extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract, package_context=package_context):
         all_constraints.extend(ext_result.constraints)
 
     merged = merge_constraints(adg, all_constraints)
@@ -214,10 +216,11 @@ def seed_build(
     console.print("[bold]Step 1:[/] Parsing repository structure...")
     adg = parse_repo(repo_path)
     console.print(f"  Found {len(adg.nodes)} nodes, {len(adg.edges)} edges")
+    package_context = derive_package_context(adg)
 
     # extract ADR constraints
     console.print("[bold]Step 2:[/] Extracting ADR constraints...")
-    results = extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract)
+    results = extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract, package_context=package_context)
     all_constraints: list[ConstraintEdge] = []
     total_errors = 0
     for result in results:

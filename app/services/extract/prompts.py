@@ -18,15 +18,17 @@ PROMPT_DESCRIPTION = (
     "- requires_implementation: the subject module MUST define the logic described by the object\n"
     "\n"
     "Scoping:\n"
-    "- Use wildcard subjects (e.g., app.services.*) when the ADR constrains an entire namespace\n"
+    "- Use wildcard subjects and objects (e.g., app.services.*) when the ADR constrains an entire namespace\n"
     "- Use specific FQN subjects when the ADR constrains a single module\n"
-    "- Never use bare * as a subject\n"
-    "- Objects must always be specific FQNs, never wildcards\n"
+    "- Never use bare * as a subject or object\n"
+    "- If a 'Codebase packages' line is provided, use the FIRST package in it as the\n"
+    "  codebase-wide subject (e.g., for 'we will use X' tech-choice ADRs). Do NOT copy\n"
+    "  the literal 'app.*' from the examples below — substitute the real root.\n"
     "\n"
     "Extraction rules:\n"
     "1. MULTIPLE PREDICATES: emit more than one constraint when a single sentence constrains "
     "both what a module must do (implementation layer) and how (dependency layer). "
-    "Example: 'B must implement Y using X' → B <requires_implementation> Y + B <requires_dependency> X.\n"
+    "Example: 'All B must implement Y using X package' → B.* <requires_implementation> Y + B.* <requires_dependency> X.*.\n"
     "\n"
     "2. EXCLUSION PATTERN — 'no module outside X shall do Y': extract TWO constraints:\n"
     "   a. app.*  <prohibits_*>  Y  — general prohibition across the codebase\n"
@@ -60,7 +62,7 @@ FEW_SHOT_EXAMPLES = [
                 attributes={
                     "subject": "app.services.*",
                     "predicate": "prohibits_dependency",
-                    "object": "mysql.connector",
+                    "object": "mysql.*",
                     "justification": "Direct MySQL connections are prohibited for services.",
                 },
             )
@@ -84,15 +86,15 @@ FEW_SHOT_EXAMPLES = [
     ),
     lx.data.ExampleData(
         text="All services in the app.services namespace must "
-             "import app.common.logging for structured log output.",
+             "import internal logging module for structured log output.",
         extractions=[
             lx.data.Extraction(
                 extraction_class="adr_constraint",
-                extraction_text="app.common.logging",
+                extraction_text="internal loggin module",
                 attributes={
                     "subject": "app.services.*",
                     "predicate": "requires_dependency",
-                    "object": "app.common.logging",
+                    "object": "app.logging",
                     "justification": "All services must import the structured logging module.",
                 },
             )
@@ -109,7 +111,7 @@ FEW_SHOT_EXAMPLES = [
                 attributes={
                     "subject": "app.*",
                     "predicate": "prohibits_implementation",
-                    "object": "app.auth.middleware",
+                    "object": "app.auth.*",
                     "justification": "No module outside app.auth shall implement authentication logic.",
                 },
             ),
@@ -126,9 +128,20 @@ FEW_SHOT_EXAMPLES = [
         ],
     ),
     lx.data.ExampleData(
-        text="We will use Black for code formatting and isort for "
-             "import sorting. Line length is set to 88 characters.",
-        extractions=[],
+        text="We will use Flask. Server should be simple - pretty much just "
+             "with a GraphQL endpoint and GraphfixQL.",
+        extractions=[
+            lx.data.Extraction(
+                extraction_class="adr_constraint",
+                extraction_text="We will use Flask",
+                attributes={
+                    "subject": "app.*",
+                    "predicate": "requires_dependency",
+                    "object": "flask",
+                    "justification": "The server will use Flask as its web framework.",
+                },
+            )
+        ],
     ),
     lx.data.ExampleData(
         text="No module outside app.database shall import mysql.connector directly.",

@@ -300,6 +300,115 @@ class TestExtractConstraintsHappyPath:
         call_kwargs = mock_extract.call_args
         assert "prompt_description" in call_kwargs.kwargs or len(call_kwargs.args) > 0
 
+    @patch("services.extract.engine.lx.extract")
+    def test_package_context_injected_into_prompt(self, mock_extract: MagicMock) -> None:
+        """When package_context is set, prompt_description passed to lx.extract names
+        the root package and its immediate children so the LLM uses real FQNs, not 'app.*'.
+        """
+        from services.extract import ADRExtractor, LangExtractConfig
+
+        mock_extract.return_value = _make_langextract_result([])
+
+        config = LangExtractConfig(api_key_env="TEST_API_KEY")
+        extractor = ADRExtractor(
+            config=config,
+            package_context=["openlobby", "openlobby.core", "openlobby.settings"],
+        )
+        extractor.extract_constraints(
+            adr_text="Some text",
+            adr_id="ADR-001",
+            adr_path="docs/adr/ADR-001.md",
+        )
+
+        prompt = mock_extract.call_args.kwargs["prompt_description"]
+        assert "openlobby" in prompt
+        assert "openlobby.core" in prompt
+
+    @patch("services.extract.engine.lx.extract")
+    def test_no_package_context_keeps_prompt_unchanged(self, mock_extract: MagicMock) -> None:
+        """Without package_context, prompt_description equals the module-level PROMPT_DESCRIPTION."""
+        from services.extract import ADRExtractor, LangExtractConfig
+        from services.extract.prompts import PROMPT_DESCRIPTION
+
+        mock_extract.return_value = _make_langextract_result([])
+
+        config = LangExtractConfig(api_key_env="TEST_API_KEY")
+        extractor = ADRExtractor(config=config)
+        extractor.extract_constraints(
+            adr_text="Some text",
+            adr_id="ADR-001",
+            adr_path="docs/adr/ADR-001.md",
+        )
+
+        assert mock_extract.call_args.kwargs["prompt_description"] == PROMPT_DESCRIPTION
+
+
+# ===========================================================================
+# 1c. derive_package_context: derive root + immediate children from an ADG
+# ===========================================================================
+
+
+class TestDerivePackageContext:
+    """derive_package_context(adg) returns the root package plus its immediate
+    children, excluding the test suite's root. Source of truth is the ADG produced
+    by parse_repo; no separate directory walk.
+    """
+
+    def _adg_with_fqns(self, dotted_names: list[str]) -> "ADG":
+        from services.fqn import FQN
+        from services.models import ADG, FQNKind, FQNNode
+
+        nodes = []
+        for dotted in dotted_names:
+            nodes.append(FQNNode(
+                fqn=FQN.from_dotted(dotted),
+                kind=FQNKind.MODULE,
+                file_path=f"{dotted.replace('.', '/')}.py",
+                line_start=0,
+                line_end=0,
+            ))
+        return ADG(nodes=nodes)
+
+    def test_returns_root_and_immediate_children(self) -> None:
+        from services.extract.engine import derive_package_context
+
+        adg = self._adg_with_fqns([
+            "openlobby",
+            "openlobby.settings",
+            "openlobby.core",
+            "openlobby.core.models",
+            "openlobby.core.auth",
+            "openlobby.core.search",
+        ])
+        ctx = derive_package_context(adg)
+        assert ctx == [
+            "openlobby",
+            "openlobby.settings",
+            "openlobby.core",
+        ] or ctx == ["openlobby", "openlobby.core", "openlobby.settings"]
+
+    def test_excludes_tests_root(self) -> None:
+        from services.extract.engine import derive_package_context
+
+        adg = self._adg_with_fqns([
+            "openlobby",
+            "openlobby.core",
+            "tests",
+            "tests.dummy",
+            "tests.schema.test_x",
+        ])
+        ctx = derive_package_context(adg)
+        assert "tests" not in ctx
+        assert "tests.dummy" not in ctx
+        assert "openlobby" in ctx
+        assert "openlobby.core" in ctx
+
+    def test_returns_none_for_empty_adg(self) -> None:
+        from services.extract.engine import derive_package_context
+        from services.models import ADG
+
+        assert derive_package_context(ADG()) == []
+
 
 # ===========================================================================
 # 2b. PROMPT_DESCRIPTION content
@@ -371,11 +480,21 @@ class TestFewShotExamples:
             "prohibits_implementation",
         }
 
-    def test_negative_example_exists(self) -> None:
+    def test_flask_positive_example_exists(self) -> None:
+        """The "we will use Flask" positive example trains the LLM to emit a
+        REQUIRES_DEPENDENCY constraint for tech-choice ADRs (replaces the
+        old Black negative example that over-generalized to skipping them)."""
         from services.extract import FEW_SHOT_EXAMPLES
 
-        negative = [ex for ex in FEW_SHOT_EXAMPLES if len(ex.extractions) == 0]
-        assert len(negative) == 1
+        flask_examples = [
+            ex for ex in FEW_SHOT_EXAMPLES
+            if any(
+                a.get("object") == "flask"
+                for a in (e.attributes for e in (ex.extractions or []))
+                if isinstance(a, dict)
+            )
+        ]
+        assert len(flask_examples) >= 1
 
 
 

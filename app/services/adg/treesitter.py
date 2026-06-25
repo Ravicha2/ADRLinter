@@ -61,6 +61,50 @@ def walk_definitions(node, parent_fqn: FQN, parent_kind: str, rel_path: str, nod
             walk_definitions(child, parent_fqn, parent_kind, rel_path, nodes, edges)
 
 
+def _resolve_relative_base(module_fqn: FQN, module_name: str) -> FQN | None:
+    """Resolve the package FQN referenced by a (possibly relative) module_name.
+
+    Handles PEP 328 relative imports: leading dots in module_name count levels
+    above the current package. Returns None if the reference climbs above the
+    root or yields an empty FQN.
+    """
+    level = len(module_name) - len(module_name.lstrip("."))
+    rest = module_name.lstrip(".")
+    parts = list(module_fqn.parts[:-1])  # current package (drop module file name)
+    if level > 1:
+        drop = level - 1
+        if drop >= len(parts):
+            return None
+        parts = parts[:-drop]
+    if rest:
+        parts.extend(rest.split("."))
+    if not parts:
+        return None
+    return FQN.from_dotted_safe(".".join(parts))
+
+
+def _record_import(
+    module_fqn: FQN, module_name: str, imported: str,
+    known_fqns: set[FQN], edges: list[Edge],
+) -> None:
+    """Add an IMPORTS edge for `module_name.imported` if known, else fall back
+    to the module itself if known. Handles relative imports.
+    """
+    if module_name.startswith("."):
+        base = _resolve_relative_base(module_fqn, module_name)
+        if base is None:
+            return
+        target_fqn = base.child(imported) if imported else base
+        module_fqn_target = base
+    else:
+        target_fqn = FQN.from_dotted_safe(f"{module_name}.{imported}")
+        module_fqn_target = FQN.from_dotted_safe(module_name)
+    if target_fqn is not None and target_fqn in known_fqns:
+        edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
+    elif module_fqn_target is not None and module_fqn_target in known_fqns:
+        edges.append(Edge(source=str(module_fqn), target=str(module_fqn_target), kind="IMPORTS"))
+
+
 def walk_imports(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge]):
     """Recursively walk AST to extract IMPORTS edges from import/from..import statements."""
 
@@ -72,32 +116,24 @@ def walk_imports(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge])
             for child in node.children:
                 if child.type == "dotted_name" and child != module_node:
                     imported = child.text.decode("utf-8")
-                    target_fqn = FQN.from_dotted(f"{module_name}.{imported}")
-                    if target_fqn in known_fqns:
-                        edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
-                    elif FQN.from_dotted_safe(module_name) in known_fqns:
-                        edges.append(Edge(source=str(module_fqn), target=module_name, kind="IMPORTS"))
+                    _record_import(module_fqn, module_name, imported, known_fqns, edges)
 
                 elif child.type == "import_list":
                     for name_node in child.children:
                         if name_node.type == "dotted_name":
                             imported = name_node.text.decode("utf-8")
-                            target_fqn = FQN.from_dotted(f"{module_name}.{imported}")
-                            if target_fqn in known_fqns:
-                                edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
-                            elif FQN.from_dotted_safe(module_name) in known_fqns:
-                                edges.append(Edge(source=str(module_fqn), target=module_name, kind="IMPORTS"))
+                            _record_import(module_fqn, module_name, imported, known_fqns, edges)
                         elif name_node.type == "aliased_import":
                             real_name = name_node.child_by_field_name("name")
                             if real_name is not None:
                                 imported = real_name.text.decode("utf-8")
-                                target_fqn = FQN.from_dotted(f"{module_name}.{imported}")
-                                if target_fqn in known_fqns:
-                                    edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
-                                elif FQN.from_dotted_safe(module_name) in known_fqns:
-                                    edges.append(Edge(source=str(module_fqn), target=module_name, kind="IMPORTS"))
+                                _record_import(module_fqn, module_name, imported, known_fqns, edges)
                         elif name_node.type == "wildcard_import":
-                            if FQN.from_dotted_safe(module_name) in known_fqns:
+                            if module_name.startswith("."):
+                                base = _resolve_relative_base(module_fqn, module_name)
+                                if base is not None and base in known_fqns:
+                                    edges.append(Edge(source=str(module_fqn), target=str(base), kind="IMPORTS"))
+                            elif FQN.from_dotted_safe(module_name) in known_fqns:
                                 edges.append(Edge(source=str(module_fqn), target=module_name, kind="IMPORTS"))
         return
 
