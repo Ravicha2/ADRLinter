@@ -1,19 +1,31 @@
-"""Tests for ConstraintEdge, ExtractionError, ExtractionResult, and PredicateType.
+"""Tests for constraint models and PredicateType.
 
 Public interface under test:
     PredicateType: enum with PROHIBITS_DEPENDENCY, REQUIRES_IMPLEMENTATION,
                          REQUIRES_DEPENDENCY, PROHIBITS_IMPLEMENTATION
+    SUBJECT_KINDS / OBJECT_KINDS: kind filters per predicate
     ConstraintEdge: dataclass with subject, predicate, object, justification,
                      adr_id, adr_path
+    SymbolicConstraint: dataclass with 7 extracted fields + adr metadata
+    ResolvedConstraint: dataclass with constraint_edge + match tracking
     ExtractionError: dataclass with message, adr_path, error_type
-    ExtractionResult: dataclass with constraints and errors
+    ExtractionResult: dataclass with constraints (SymbolicConstraint) and errors
 """
 
 from __future__ import annotations
 
 import pytest
 
-from services.models import ConstraintEdge, ExtractionError, ExtractionResult, PredicateType
+from services.models import (
+    ConstraintEdge,
+    ExtractionError,
+    ExtractionResult,
+    OBJECT_KINDS,
+    PredicateType,
+    ResolvedConstraint,
+    SUBJECT_KINDS,
+    SymbolicConstraint,
+)
 
 
 # ===========================================================================
@@ -264,11 +276,14 @@ class TestExtractionResult:
     def test_successful_extraction(self) -> None:
         """All constraints extracted, no errors."""
         constraints = [
-            ConstraintEdge(
-                subject="app.services.*",
+            SymbolicConstraint(
+                subject_role_general="app.services",
+                subject_role_specific="service",
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
-                object="app.db.mysql",
+                object_role_general="mysql",
+                object_role_specific="connector",
                 justification="Direct MySQL connections prohibited.",
+                extraction_text="Direct MySQL connections are prohibited",
                 adr_id="ADR-001",
                 adr_path="docs/adr/ADR-001-mysql-storage.md",
             ),
@@ -294,11 +309,14 @@ class TestExtractionResult:
     def test_partial_extraction(self) -> None:
         """Some constraints extracted, some malformed and reported as errors."""
         constraints = [
-            ConstraintEdge(
-                subject="app.services.*",
+            SymbolicConstraint(
+                subject_role_general="app.services",
+                subject_role_specific="service",
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
-                object="app.db.mysql",
+                object_role_general="mysql",
+                object_role_specific="connector",
                 justification="Direct MySQL connections prohibited.",
+                extraction_text="Direct MySQL connections are prohibited",
                 adr_id="ADR-001",
                 adr_path="docs/adr/ADR-001-mysql-storage.md",
             ),
@@ -336,3 +354,244 @@ class TestExtractionResult:
         ]
         result = ExtractionResult(constraints=[], errors=errors)
         assert len(result.errors) == 2
+
+
+# ===========================================================================
+# 6. SUBJECT_KINDS and OBJECT_KINDS
+# ===========================================================================
+
+
+class TestSubjectKinds:
+    """SUBJECT_KINDS maps predicate values to allowed FQNKind sets."""
+
+    def test_dependency_predicates_allow_module_only(self) -> None:
+        assert SUBJECT_KINDS["requires_dependency"] == {"module"}
+        assert SUBJECT_KINDS["prohibits_dependency"] == {"module"}
+
+    def test_implementation_predicates_allow_module_and_class(self) -> None:
+        assert SUBJECT_KINDS["requires_implementation"] == {"module", "class"}
+        assert SUBJECT_KINDS["prohibits_implementation"] == {"module", "class"}
+
+    def test_covers_all_predicates(self) -> None:
+        for pred in PredicateType:
+            assert pred.value in SUBJECT_KINDS
+
+
+class TestObjectKinds:
+    """OBJECT_KINDS maps predicate values to allowed FQNKind sets."""
+
+    def test_dependency_predicates_allow_module_only(self) -> None:
+        assert OBJECT_KINDS["requires_dependency"] == {"module"}
+        assert OBJECT_KINDS["prohibits_dependency"] == {"module"}
+
+    def test_implementation_predicates_allow_class_function_method(self) -> None:
+        expected = {"class", "function", "method"}
+        assert OBJECT_KINDS["requires_implementation"] == expected
+        assert OBJECT_KINDS["prohibits_implementation"] == expected
+
+    def test_covers_all_predicates(self) -> None:
+        for pred in PredicateType:
+            assert pred.value in OBJECT_KINDS
+
+
+# ===========================================================================
+# 7. SymbolicConstraint
+# ===========================================================================
+
+
+class TestSymbolicConstraintConstruction:
+    """SymbolicConstraint holds 7 extracted fields plus ADR metadata."""
+
+    def test_full_construction(self) -> None:
+        sc = SymbolicConstraint(
+            subject_role_general="app.services",
+            subject_role_specific="service",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object_role_general="mysql",
+            object_role_specific="connector",
+            justification="No direct MySQL connections.",
+            extraction_text="Direct MySQL connections are prohibited",
+            adr_id="ADR-001",
+            adr_path="docs/adr/ADR-001-mysql-storage.md",
+        )
+        assert sc.subject_role_general == "app.services"
+        assert sc.subject_role_specific == "service"
+        assert sc.predicate is PredicateType.PROHIBITS_DEPENDENCY
+        assert sc.object_role_general == "mysql"
+        assert sc.object_role_specific == "connector"
+        assert sc.justification == "No direct MySQL connections."
+        assert sc.extraction_text == "Direct MySQL connections are prohibited"
+        assert sc.adr_id == "ADR-001"
+
+    def test_requires_implementation(self) -> None:
+        sc = SymbolicConstraint(
+            subject_role_general="app.api",
+            subject_role_specific="endpoint",
+            predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+            object_role_general="app.auth",
+            object_role_specific="authentication logic",
+            justification="All API endpoints must implement auth.",
+            extraction_text="All API endpoints shall implement authentication",
+            adr_id="ADR-003",
+            adr_path="docs/adr/003-auth.md",
+        )
+        assert sc.predicate is PredicateType.REQUIRES_IMPLEMENTATION
+
+    def test_exclusion_pattern_two_constraints(self) -> None:
+        """Exclusion pattern produces two SymbolicConstraints."""
+        general = SymbolicConstraint(
+            subject_role_general="app",
+            subject_role_specific="module",
+            predicate=PredicateType.PROHIBITS_IMPLEMENTATION,
+            object_role_general="app.auth",
+            object_role_specific="authentication logic",
+            justification="No module outside app.auth shall implement auth.",
+            extraction_text="No module outside app.auth",
+            adr_id="ADR-005",
+            adr_path="docs/adr/005.md",
+        )
+        specific = SymbolicConstraint(
+            subject_role_general="app.auth",
+            subject_role_specific="auth module",
+            predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+            object_role_general="app.auth",
+            object_role_specific="authentication logic",
+            justification="Only app.auth shall implement auth.",
+            extraction_text="Only app.auth",
+            adr_id="ADR-005",
+            adr_path="docs/adr/005.md",
+        )
+        assert general.predicate is PredicateType.PROHIBITS_IMPLEMENTATION
+        assert specific.predicate is PredicateType.REQUIRES_IMPLEMENTATION
+
+
+class TestSymbolicConstraintValidation:
+    """SymbolicConstraint rejects empty required fields."""
+
+    def test_empty_subject_role_general_rejected(self) -> None:
+        with pytest.raises(ValueError, match="subject_role_general"):
+            SymbolicConstraint(
+                subject_role_general="",
+                subject_role_specific="service",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object_role_general="mysql",
+                object_role_specific="connector",
+                justification="Test",
+                extraction_text="test text",
+                adr_id="ADR-001",
+                adr_path="docs/adr/001.md",
+            )
+
+    def test_empty_object_role_general_rejected(self) -> None:
+        with pytest.raises(ValueError, match="object_role_general"):
+            SymbolicConstraint(
+                subject_role_general="app.services",
+                subject_role_specific="service",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object_role_general="",
+                object_role_specific="connector",
+                justification="Test",
+                extraction_text="test text",
+                adr_id="ADR-001",
+                adr_path="docs/adr/001.md",
+            )
+
+    def test_empty_justification_rejected(self) -> None:
+        with pytest.raises(ValueError, match="justification"):
+            SymbolicConstraint(
+                subject_role_general="app.services",
+                subject_role_specific="service",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object_role_general="mysql",
+                object_role_specific="connector",
+                justification="",
+                extraction_text="test text",
+                adr_id="ADR-001",
+                adr_path="docs/adr/001.md",
+            )
+
+    def test_empty_extraction_text_rejected(self) -> None:
+        with pytest.raises(ValueError, match="extraction_text"):
+            SymbolicConstraint(
+                subject_role_general="app.services",
+                subject_role_specific="service",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object_role_general="mysql",
+                object_role_specific="connector",
+                justification="Test",
+                extraction_text="",
+                adr_id="ADR-001",
+                adr_path="docs/adr/001.md",
+            )
+
+    def test_missing_adr_id_rejected(self) -> None:
+        with pytest.raises((ValueError, TypeError)):
+            SymbolicConstraint(
+                subject_role_general="app.services",
+                subject_role_specific="service",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object_role_general="mysql",
+                object_role_specific="connector",
+                justification="Test",
+                extraction_text="test text",
+                adr_path="docs/adr/001.md",
+            )
+
+    def test_missing_adr_path_rejected(self) -> None:
+        with pytest.raises((ValueError, TypeError)):
+            SymbolicConstraint(
+                subject_role_general="app.services",
+                subject_role_specific="service",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object_role_general="mysql",
+                object_role_specific="connector",
+                justification="Test",
+                extraction_text="test text",
+                adr_id="ADR-001",
+            )
+
+
+# ===========================================================================
+# 8. ResolvedConstraint
+# ===========================================================================
+
+
+class TestResolvedConstraint:
+    """ResolvedConstraint wraps a ConstraintEdge with match-source tracking."""
+
+    def test_construction(self) -> None:
+        edge = ConstraintEdge(
+            subject="app.services.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="mysql.connector",
+            justification="No direct MySQL.",
+            adr_id="ADR-001",
+            adr_path="docs/adr/001.md",
+        )
+        rc = ResolvedConstraint(
+            constraint_edge=edge,
+            subject_matched_by="general_wildcard",
+            object_matched_by="external",
+        )
+        assert rc.constraint_edge is edge
+        assert rc.subject_matched_by == "general_wildcard"
+        assert rc.object_matched_by == "external"
+
+    def test_match_sources(self) -> None:
+        """All documented match sources are valid strings."""
+        edge = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+            object="app.auth.middleware",
+            justification="test",
+            adr_id="ADR-003",
+            adr_path="docs/adr/003.md",
+        )
+        for source in ("specific", "general_wildcard", "fallback", "human"):
+            rc = ResolvedConstraint(
+                constraint_edge=edge,
+                subject_matched_by=source,
+                object_matched_by=source,
+            )
+            assert rc.subject_matched_by == source
+            assert rc.object_matched_by == source

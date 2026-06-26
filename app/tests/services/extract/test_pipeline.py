@@ -23,11 +23,11 @@ import pytest
 
 from services.models import (
     CommitDiff,
-    ConstraintEdge,
     ExtractionError,
     ExtractionResult,
     FileChange,
     PredicateType,
+    SymbolicConstraint,
 )
 
 
@@ -64,17 +64,22 @@ MAKEFILE_SOURCE = b".PHONY: test\ntest:\n\tpytest\n"
 
 
 def _make_constraint(
-    subject: str = "app.services.*",
+    subject_role_general: str = "app.services",
+    subject_role_specific: str = "service",
     predicate: PredicateType = PredicateType.PROHIBITS_DEPENDENCY,
-    object_: str = "app.db.mysql",
+    object_role_general: str = "app.db",
+    object_role_specific: str = "MySQL connector",
     adr_id: str = "ADR-001",
     adr_path: str = "docs/adr/ADR-001-mysql-storage.md",
-) -> ConstraintEdge:
-    return ConstraintEdge(
-        subject=subject,
+) -> SymbolicConstraint:
+    return SymbolicConstraint(
+        subject_role_general=subject_role_general,
+        subject_role_specific=subject_role_specific,
         predicate=predicate,
-        object=object_,
+        object_role_general=object_role_general,
+        object_role_specific=object_role_specific,
         justification="Test constraint",
+        extraction_text="test extraction text",
         adr_id=adr_id,
         adr_path=adr_path,
     )
@@ -219,9 +224,11 @@ class TestExtractChangedAdrs:
             ExtractionResult(
                 constraints=[
                     _make_constraint(
-                        subject="app.api.*",
+                        subject_role_general="app.api",
+                        subject_role_specific="endpoint",
                         predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                        object_="app.auth.middleware",
+                        object_role_general="app.auth",
+                        object_role_specific="auth middleware",
                         adr_id="ADR-003",
                         adr_path="docs/adr/ADR-003-auth-middleware.md",
                     )
@@ -311,16 +318,16 @@ class TestWriteConstraints:
     """write_constraints serializes ExtractionResults to a JSON file."""
 
     def test_writes_valid_constraints(self, tmp_path: Path) -> None:
-        """ConstraintEdges are serialized to JSON with all fields."""
+        """SymbolicConstraints are serialized to JSON with all fields."""
         from services.extract import write_constraints
 
         results = [
             ExtractionResult(
                 constraints=[
                     _make_constraint(
-                        subject="app.services.*",
+                        subject_role_general="app.services",
                         predicate=PredicateType.PROHIBITS_DEPENDENCY,
-                        object_="app.db.mysql",
+                        object_role_general="app.db",
                     ),
                 ],
                 errors=[],
@@ -335,7 +342,7 @@ class TestWriteConstraints:
         assert "constraints" in data
         assert "errors" in data
         assert len(data["constraints"]) == 1
-        assert data["constraints"][0]["subject"] == "app.services.*"
+        assert data["constraints"][0]["subject_role_general"] == "app.services"
         assert data["constraints"][0]["predicate"] == "prohibits_dependency"
 
     def test_writes_multiple_results(self, tmp_path: Path) -> None:
@@ -352,9 +359,11 @@ class TestWriteConstraints:
             ExtractionResult(
                 constraints=[
                     _make_constraint(
-                        subject="app.api.*",
+                        subject_role_general="app.api",
+                        subject_role_specific="endpoint",
                         predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                        object_="app.auth.middleware",
+                        object_role_general="app.auth",
+                        object_role_specific="auth middleware",
                         adr_id="ADR-003",
                         adr_path="docs/adr/ADR-003.md",
                     ),

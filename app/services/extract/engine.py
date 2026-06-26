@@ -19,23 +19,23 @@ from services.extract.io import parse_adr_id
 from services.extract.logging import ADRLogEntry, write_log
 from services.extract.prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
 from services.models import (
-    ADG,
-    ConstraintEdge,
     ExtractionError,
     ExtractionResult,
     PredicateType,
+    SymbolicConstraint,
 )
 
 
-def derive_package_context(adg: ADG) -> list[str]:
-    """Return the root package plus its immediate children, excluding the
-    test suite's root. Source: adg.nodes. ponytail: bounded by the repo's
-    natural width; deeper subpackages are not surfaced since ADRs rarely name
-    them, and orphans are inert (no false violations).
+def derive_package_context(adg: "ADG") -> list[str]:  # noqa: F821
+    """Return all top-level module packages from the ADG, excluding 'tests'.
+
+    The LLM uses this list to pick role_general values instead of inventing
+    FQN strings. Every top-level module is included so both subject and object
+    general roles have a bounded vocabulary to draw from.
     """
     if not adg.nodes:
         return []
-    top_counts: dict[str, int] = {}
+    top_modules: set[str] = set()
     for n in adg.nodes:
         parts = n.fqn.parts
         if not parts:
@@ -43,17 +43,8 @@ def derive_package_context(adg: ADG) -> list[str]:
         top = parts[0]
         if top == "tests":
             continue
-        top_counts[top] = top_counts.get(top, 0) + 1
-    if not top_counts:
-        return []
-    root = max(top_counts.items(), key=lambda kv: kv[1])[0]
-    children: set[str] = set()
-    for n in adg.nodes:
-        parts = n.fqn.parts
-        if len(parts) < 2 or parts[0] != root:
-            continue
-        children.add(".".join(parts[:2]))
-    return [root, *sorted(children)]
+        top_modules.add(top)
+    return sorted(top_modules)
 
 
 class ADRExtractor:
@@ -73,7 +64,7 @@ class ADRExtractor:
         packages = ", ".join(self.package_context)
         return (
             PROMPT_DESCRIPTION
-            + "\nCodebase packages (use these as constraint subjects; root is codebase-wide):\n"
+            + "\nCodebase packages (use these as role_general values):\n"
             + packages
             + "\n"
         )
@@ -127,7 +118,7 @@ class ADRExtractor:
         finally:
             duration_ms = (time.perf_counter() - start) * 1000
 
-        constraints: list[ConstraintEdge] = []
+        constraints: list[SymbolicConstraint] = []
         errors: list[ExtractionError] = []
         parsed_predicate_count = 0
 
@@ -150,18 +141,21 @@ class ADRExtractor:
                 continue
 
             try:
-                edge = ConstraintEdge(
-                    subject=attrs.get("subject", ""),
+                sc = SymbolicConstraint(
+                    subject_role_general=attrs.get("subject_role_general", ""),
+                    subject_role_specific=attrs.get("subject_role_specific", ""),
                     predicate=predicate,
-                    object=attrs.get("object", ""),
+                    object_role_general=attrs.get("object_role_general", ""),
+                    object_role_specific=attrs.get("object_role_specific", ""),
                     justification=attrs.get("justification", ""),
+                    extraction_text=ext.extraction_text or "",
                     adr_id=adr_id,
                     adr_path=adr_path,
                 )
-                constraints.append(edge)
+                constraints.append(sc)
                 log.info(
                     "extract_constraints: parsed constraint [%s] '%s' -[%s]-> '%s'",
-                    adr_id, edge.subject, edge.predicate.value, edge.object,
+                    adr_id, sc.subject_role_general, sc.predicate.value, sc.object_role_general,
                 )
             except ValueError as exc:
                 log.error("extract_constraints: malformed extraction for %s: %s", adr_id, exc)

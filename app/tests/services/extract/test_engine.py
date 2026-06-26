@@ -2,7 +2,7 @@
 
 Public interface under test:
     LangExtractConfig: config dataclass (model_id, model_url, api_key_env)
-    ADRExtractor: extracts ConstraintEdge objects from ADR text
+    ADRExtractor: extracts SymbolicConstraint objects from ADR text
         - extract_constraints(adr_text, adr_id, adr_path) -> ExtractionResult
         - extract_from_file(adr_path) -> ExtractionResult
         - extract_from_directory(adr_dir) -> list[ExtractionResult]
@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.models import ConstraintEdge, ExtractionError, ExtractionResult, PredicateType
+from services.models import ExtractionError, ExtractionResult, PredicateType
 
 
 # ---------------------------------------------------------------------------
@@ -28,19 +28,24 @@ from services.models import ConstraintEdge, ExtractionError, ExtractionResult, P
 
 
 def _make_extraction(
-    subject: str = "services.*",
+    subject_role_general: str = "services",
+    subject_role_specific: str = "service",
     predicate: str = "prohibits_dependency",
-    object_: str = "db.mysql",
+    object_role_general: str = "db",
+    object_role_specific: str = "MySQL connector",
     justification: str = "Direct MySQL connections are prohibited.",
+    extraction_text: str = "",
 ) -> MagicMock:
-    """Create a mock langextract Extraction object."""
+    """Create a mock langextract Extraction object with symbolic fields."""
     extraction = MagicMock()
     extraction.extraction_class = "adr_constraint"
-    extraction.extraction_text = f"{subject} {predicate} {object_}"
+    extraction.extraction_text = extraction_text or f"{subject_role_general} {predicate} {object_role_general}"
     extraction.attributes = {
-        "subject": subject,
+        "subject_role_general": subject_role_general,
+        "subject_role_specific": subject_role_specific,
         "predicate": predicate,
-        "object": object_,
+        "object_role_general": object_role_general,
+        "object_role_specific": object_role_specific,
         "justification": justification,
     }
     return extraction
@@ -210,29 +215,31 @@ class TestExtractConstraintsHappyPath:
         )
 
         assert len(result.constraints) == 1
-        assert result.constraints[0].subject == "services.*"
+        assert result.constraints[0].subject_role_general == "services"
         assert result.constraints[0].predicate is PredicateType.PROHIBITS_DEPENDENCY
-        assert result.constraints[0].object == "db.mysql"
+        assert result.constraints[0].object_role_general == "db"
         assert result.constraints[0].adr_id == "ADR-001"
         assert result.errors == []
 
     @patch("services.extract.engine.lx.extract")
     def test_multiple_constraints(self, mock_extract: MagicMock) -> None:
-        """Multiple extractions produce multiple ConstraintEdges."""
+        """Multiple extractions produce multiple SymbolicConstraints."""
         from services.extract import ADRExtractor, LangExtractConfig
 
         mock_extract.return_value = _make_langextract_result(
             [
                 _make_extraction(
-                    subject="services.*",
+                    subject_role_general="services",
                     predicate="prohibits_dependency",
-                    object_="db.mysql",
+                    object_role_general="db",
+                    object_role_specific="MySQL connector",
                     justification="Direct MySQL connections prohibited.",
                 ),
                 _make_extraction(
-                    subject="services.*",
+                    subject_role_general="services",
                     predicate="requires_implementation",
-                    object_="db.query",
+                    object_role_general="db",
+                    object_role_specific="query interface",
                     justification="All services must route queries through this interface.",
                 ),
             ]
@@ -319,9 +326,8 @@ class TestExtractConstraintsHappyPath:
 
 
 class TestDerivePackageContext:
-    """derive_package_context(adg) returns the root package plus its immediate
-    children, excluding the test suite's root. Source of truth is the ADG produced
-    by parse_repo; no separate directory walk.
+    """derive_package_context(adg) returns all top-level module packages,
+    excluding 'tests'. The LLM uses this to pick role_general values.
     """
 
     def _adg_with_fqns(self, dotted_names: list[str]) -> "ADG":
@@ -339,7 +345,7 @@ class TestDerivePackageContext:
             ))
         return ADG(nodes=nodes)
 
-    def test_returns_root_and_immediate_children(self) -> None:
+    def test_returns_all_top_level_modules(self) -> None:
         from services.extract.engine import derive_package_context
 
         adg = self._adg_with_fqns([
@@ -351,11 +357,11 @@ class TestDerivePackageContext:
             "openlobby.core.search",
         ])
         ctx = derive_package_context(adg)
-        assert ctx == [
-            "openlobby",
-            "openlobby.settings",
-            "openlobby.core",
-        ] or ctx == ["openlobby", "openlobby.core", "openlobby.settings"]
+        # Should return all unique top-level module names
+        assert "openlobby" in ctx
+        # Only top-level, not subpackages
+        assert "openlobby.settings" not in ctx
+        assert "openlobby.core" not in ctx
 
     def test_excludes_tests_root(self) -> None:
         from services.extract.engine import derive_package_context
@@ -369,9 +375,7 @@ class TestDerivePackageContext:
         ])
         ctx = derive_package_context(adg)
         assert "tests" not in ctx
-        assert "tests.dummy" not in ctx
         assert "openlobby" in ctx
-        assert "openlobby.core" in ctx
 
     def test_returns_none_for_empty_adg(self) -> None:
         from services.extract.engine import derive_package_context
@@ -411,15 +415,16 @@ class TestPromptDescription:
 
         assert "wildcard" in PROMPT_DESCRIPTION.lower() or "namespace" in PROMPT_DESCRIPTION.lower()
 
-    def test_bare_wildcard_prohibited(self) -> None:
+    def test_bare_wildcard_not_used_in_role_general(self) -> None:
         from services.extract import PROMPT_DESCRIPTION
 
-        assert "never" in PROMPT_DESCRIPTION.lower() or "bare" in PROMPT_DESCRIPTION.lower()
+        # Wildcards are no longer used in role_general; resolution implies them
+        assert "wildcard" in PROMPT_DESCRIPTION.lower() or "role_general" in PROMPT_DESCRIPTION
 
-    def test_objects_must_be_fqns(self) -> None:
+    def test_role_general_field_described(self) -> None:
         from services.extract import PROMPT_DESCRIPTION
 
-        assert "FQN" in PROMPT_DESCRIPTION
+        assert "role_general" in PROMPT_DESCRIPTION or "subject_role_general" in PROMPT_DESCRIPTION
 
 
 # ===========================================================================
@@ -451,15 +456,14 @@ class TestFewShotExamples:
         }
 
     def test_flask_positive_example_exists(self) -> None:
-        """The "we will use Flask" positive example trains the LLM to emit a
-        REQUIRES_DEPENDENCY constraint for tech-choice ADRs (replaces the
-        old Black negative example that over-generalized to skipping them)."""
+        """The 'we will use Flask' positive example trains the LLM to emit a
+        REQUIRES_DEPENDENCY constraint for tech-choice ADRs."""
         from services.extract import FEW_SHOT_EXAMPLES
 
         flask_examples = [
             ex for ex in FEW_SHOT_EXAMPLES
             if any(
-                a.get("object") == "flask"
+                a.get("object_role_general") == "flask"
                 for a in (e.attributes for e in (ex.extractions or []))
                 if isinstance(a, dict)
             )
@@ -621,9 +625,9 @@ class TestExtractConstraintsMalformed:
         from services.extract import ADRExtractor, LangExtractConfig
 
         valid = _make_extraction(
-            subject="services.*",
+            subject_role_general="services",
             predicate="prohibits_dependency",
-            object_="db.mysql",
+            object_role_general="db",
             justification="Direct MySQL connections prohibited.",
         )
         malformed = _make_extraction(predicate="requires")

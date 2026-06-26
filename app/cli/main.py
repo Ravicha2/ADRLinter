@@ -14,6 +14,7 @@ from rich.table import Table
 from cli.config import load_config
 from services.adg import parse_repo
 from services.adg.merge import merge_constraints
+from services.models import FQNKind, SymbolicConstraint
 from services.cpt import GitAdapter, process_diff
 from services.cpt.diff_processor import augment_adg
 from services.cpt.engine import detect as cpt_detect
@@ -143,7 +144,7 @@ def detect(
     package_context = derive_package_context(adg)
 
     console.print("[bold]Extracting ADR constraints...[/]")
-    all_constraints: list[ConstraintEdge] = []
+    all_constraints: list[SymbolicConstraint] = []
     for ext_result in extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract, package_context=package_context):
         all_constraints.extend(ext_result.constraints)
 
@@ -221,7 +222,7 @@ def seed_build(
     # extract ADR constraints
     console.print("[bold]Step 2:[/] Extracting ADR constraints...")
     results = extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract, package_context=package_context)
-    all_constraints: list[ConstraintEdge] = []
+    all_constraints: list[SymbolicConstraint] = []
     total_errors = 0
     for result in results:
         all_constraints.extend(result.constraints)

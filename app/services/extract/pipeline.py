@@ -53,17 +53,20 @@ def extract_all_adrs(
 
 
 def write_constraints(results: list[ExtractionResult], output_path: Path) -> None:
-    """Write extracted constraints to JSON for the Merge Layer."""
+    """Write extracted SymbolicConstraints to JSON for the Merge Layer."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
     constraints: list[dict] = []
     errors: list[dict] = []
     for result in results:
         for c in result.constraints:
             constraints.append({
-                "subject": c.subject,
+                "subject_role_general": c.subject_role_general,
+                "subject_role_specific": c.subject_role_specific,
                 "predicate": c.predicate.value,
-                "object": c.object,
+                "object_role_general": c.object_role_general,
+                "object_role_specific": c.object_role_specific,
                 "justification": c.justification,
+                "extraction_text": c.extraction_text,
                 "adr_id": c.adr_id,
                 "adr_path": c.adr_path,
             })

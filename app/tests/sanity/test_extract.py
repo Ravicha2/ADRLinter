@@ -61,14 +61,17 @@ else:
 if result.constraints:
     c = result.constraints[0]
     print(f"\n  First constraint:")
-    print(f"    subject: {c.subject}")
+    print(f"    subject_role_general: {c.subject_role_general}")
+    print(f"    subject_role_specific: {c.subject_role_specific}")
     print(f"    predicate: {c.predicate.value}")
-    print(f"    object: {c.object}")
+    print(f"    object_role_general: {c.object_role_general}")
+    print(f"    object_role_specific: {c.object_role_specific}")
     print(f"    justification: {c.justification}")
 
-    assert c.subject, "subject must be non-empty"
-    assert c.object, "object must be non-empty"
+    assert c.subject_role_general, "subject_role_general must be non-empty"
+    assert c.object_role_general, "object_role_general must be non-empty"
     assert c.justification, "justification must be non-empty"
+    assert c.extraction_text, "extraction_text must be non-empty"
     assert isinstance(c.predicate, PredicateType), f"predicate must be PredicateType, got {type(c.predicate)}"
     print("\n  OK: output structure is sound")
 else:

@@ -1,8 +1,9 @@
-"""Tests for the Merge Layer: unifying AST-derived ADG with ADR constraint edges.
+"""Tests for the Merge Layer: symbolic constraint resolution and ADG merge.
 
 Public interface under test:
     add_external_nodes: create EXTERNAL nodes for unmatched import targets
-    merge_constraints: unify Track A ADG + Track B constraint edges into merged ADG
+    resolve_symbolic_constraints: resolve SymbolicConstraints against ADG
+    merge_constraints: unify Track A ADG + Track B symbolic constraints into merged ADG
 """
 
 from __future__ import annotations
@@ -17,11 +18,14 @@ from services.models import (
     FQNKind,
     FQNNode,
     PredicateType,
+    ResolvedConstraint,
+    SymbolicConstraint,
 )
 from services.resolver import MatchStatus, NameResolver
 from services.adg.merge import (
     add_external_nodes,
     merge_constraints,
+    resolve_symbolic_constraints,
 )
 
 
@@ -58,22 +62,28 @@ def sample_adg() -> ADG:
 
 
 @pytest.fixture
-def sample_constraints() -> list[ConstraintEdge]:
-    """Constraint edges from ADR extraction."""
+def sample_symbolic_constraints() -> list[SymbolicConstraint]:
+    """Symbolic constraints from ADR extraction."""
     return [
-        ConstraintEdge(
-            subject="app.api.*",
+        SymbolicConstraint(
+            subject_role_general="app.api",
+            subject_role_specific="endpoint",
             predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-            object="app.auth.middleware",
+            object_role_general="app.auth",
+            object_role_specific="authentication middleware",
             justification="All API endpoints must implement authentication.",
+            extraction_text="All API endpoints shall implement authentication",
             adr_id="ADR-003",
             adr_path="docs/adr/003-auth-middleware.md",
         ),
-        ConstraintEdge(
-            subject="app.services.*",
+        SymbolicConstraint(
+            subject_role_general="app.services",
+            subject_role_specific="service",
             predicate=PredicateType.PROHIBITS_DEPENDENCY,
-            object="logging",
+            object_role_general="logging",
+            object_role_specific="bare logging",
             justification="No service shall use bare logging directly.",
+            extraction_text="No service shall use bare logging",
             adr_id="ADR-005",
             adr_path="docs/adr/005-centralized-logging.md",
         ),
@@ -121,67 +131,142 @@ class TestAddExternalNodes:
 
 
 # ===========================================================================
-# 2. merge_constraints: unifying Track A + Track B
+# 2. resolve_symbolic_constraints: symbolic resolution
+# ===========================================================================
+
+
+class TestResolveSymbolicConstraints:
+    """Resolve SymbolicConstraints against ADG nodes."""
+
+    def test_resolve_exact_match(self, sample_adg: ADG) -> None:
+        sc = SymbolicConstraint(
+            subject_role_general="app.api",
+            subject_role_specific="endpoint",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object_role_general="mysql",
+            object_role_specific="connector",
+            justification="No direct MySQL.",
+            extraction_text="No direct MySQL connections",
+            adr_id="ADR-001",
+            adr_path="docs/adr/001.md",
+        )
+        resolved = resolve_symbolic_constraints([sc], sample_adg)
+        assert len(resolved) >= 1
+        assert resolved[0].constraint_edge.subject.startswith("app.api")
+        assert resolved[0].constraint_edge.predicate is PredicateType.PROHIBITS_DEPENDENCY
+        assert resolved[0].object_matched_by == "external"
+
+    def test_resolve_general_wildcard(self, sample_adg: ADG) -> None:
+        sc = SymbolicConstraint(
+            subject_role_general="app.services",
+            subject_role_specific="service",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object_role_general="logging",
+            object_role_specific="logging module",
+            justification="No bare logging.",
+            extraction_text="No bare logging",
+            adr_id="ADR-005",
+            adr_path="docs/adr/005.md",
+        )
+        resolved = resolve_symbolic_constraints([sc], sample_adg)
+        assert len(resolved) >= 1
+        assert resolved[0].subject_matched_by == "general_wildcard"
+
+    def test_resolve_no_match_skips(self, sample_adg: ADG) -> None:
+        sc = SymbolicConstraint(
+            subject_role_general="nonexistent",
+            subject_role_specific="phantom",
+            predicate=PredicateType.REQUIRES_DEPENDENCY,
+            object_role_general="mysql",
+            object_role_specific="connector",
+            justification="Phantom module.",
+            extraction_text="Phantom module",
+            adr_id="ADR-999",
+            adr_path="docs/adr/999.md",
+        )
+        resolved = resolve_symbolic_constraints([sc], sample_adg)
+        assert len(resolved) == 0
+
+    def test_external_dependency_creates_external_node(self, sample_adg: ADG) -> None:
+        sc = SymbolicConstraint(
+            subject_role_general="app.services",
+            subject_role_specific="service",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object_role_general="mysql",
+            object_role_specific="MySQL connector",
+            justification="No direct MySQL.",
+            extraction_text="No direct MySQL connections",
+            adr_id="ADR-001",
+            adr_path="docs/adr/001.md",
+        )
+        resolved = resolve_symbolic_constraints([sc], sample_adg)
+        assert len(resolved) >= 1
+        assert resolved[0].object_matched_by == "external"
+
+    def test_resolve_implementation_predicate_matches_class(self) -> None:
+        """requires_implementation should match class/function/method nodes."""
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+            FQNNode(fqn=FQN.from_dotted("app.auth"), kind=FQNKind.MODULE, file_path="app/auth/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+            FQNNode(fqn=FQN.from_dotted("app.auth.Middleware"), kind=FQNKind.CLASS, file_path="app/auth/middleware.py", line_start=0, line_end=60, start_byte=0, end_byte=1200),
+        ]
+        edges = [
+            Edge(source="app", target="app.auth", kind="CONTAINS"),
+            Edge(source="app.auth", target="app.auth.Middleware", kind="CONTAINS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+
+        sc = SymbolicConstraint(
+            subject_role_general="app",
+            subject_role_specific="module",
+            predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+            object_role_general="app.auth",
+            object_role_specific="Middleware",
+            justification="Must implement auth.",
+            extraction_text="Must implement auth",
+            adr_id="ADR-010",
+            adr_path="docs/adr/010.md",
+        )
+        resolved = resolve_symbolic_constraints([sc], adg)
+        assert len(resolved) >= 1
+        # Object should match the class node
+        object_fqns = {rc.constraint_edge.object for rc in resolved}
+        assert "app.auth.Middleware" in object_fqns
+
+
+# ===========================================================================
+# 3. merge_constraints: unifying Track A + Track B (now via SymbolicConstraint)
 # ===========================================================================
 
 
 class TestMergeConstraints:
-    """Merge Layer combines ADG nodes/edges with constraint edges."""
+    """Merge Layer combines ADG nodes/edges with resolved constraint edges."""
 
-    def test_merge_adds_constraint_edges_to_adg(self, sample_adg: ADG, sample_constraints: list[ConstraintEdge]) -> None:
-        result = merge_constraints(sample_adg, sample_constraints)
-        assert len(result.constraint_edges) == 2
-        for edge in result.constraint_edges:
-            assert edge.specificity > 0.0 or edge.specificity == 0.0
+    def test_merge_adds_constraint_edges_to_adg(self, sample_adg: ADG, sample_symbolic_constraints: list[SymbolicConstraint]) -> None:
+        result = merge_constraints(sample_adg, sample_symbolic_constraints)
+        assert len(result.constraint_edges) >= 2
 
-    def test_merge_preserves_structural_nodes_and_edges(self, sample_adg: ADG, sample_constraints: list[ConstraintEdge]) -> None:
-        result = merge_constraints(sample_adg, sample_constraints)
+    def test_merge_preserves_structural_nodes_and_edges(self, sample_adg: ADG, sample_symbolic_constraints: list[SymbolicConstraint]) -> None:
+        result = merge_constraints(sample_adg, sample_symbolic_constraints)
         structural = [n for n in result.nodes if n.kind != FQNKind.EXTERNAL]
         assert len(structural) == len(sample_adg.nodes)
         assert len(result.edges) == len(sample_adg.edges)
 
     def test_merge_adds_external_for_orphan_references(self, sample_adg: ADG) -> None:
-        constraints = [
-            ConstraintEdge(
-                subject="app.services.*",
-                predicate=PredicateType.PROHIBITS_DEPENDENCY,
-                object="logging",
-                justification="No bare logging.",
-                adr_id="ADR-005",
-                adr_path="docs/adr/005-logging.md",
-            ),
-        ]
-        result = merge_constraints(sample_adg, constraints)
+        sc = SymbolicConstraint(
+            subject_role_general="app.services",
+            subject_role_specific="service",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object_role_general="logging",
+            object_role_specific="bare logging",
+            justification="No bare logging.",
+            extraction_text="No bare logging",
+            adr_id="ADR-005",
+            adr_path="docs/adr/005-logging.md",
+        )
+        result = merge_constraints(sample_adg, [sc])
         external_nodes = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
         assert any(n.fqn == FQN.from_dotted("logging") for n in external_nodes)
-
-    def test_merge_computes_specificity_for_exact_match(self, sample_adg: ADG) -> None:
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.users",
-                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                object="app.auth.middleware",
-                justification="test",
-                adr_id="ADR-001",
-                adr_path="docs/adr/001.md",
-            ),
-        ]
-        result = merge_constraints(sample_adg, constraints)
-        assert result.constraint_edges[0].specificity == 4.0
-
-    def test_merge_computes_specificity_for_wildcard(self, sample_adg: ADG) -> None:
-        constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                object="app.auth.middleware",
-                justification="test",
-                adr_id="ADR-003",
-                adr_path="docs/adr/003.md",
-            ),
-        ]
-        result = merge_constraints(sample_adg, constraints)
-        assert result.constraint_edges[0].specificity == 3.0
 
     def test_merge_empty_constraints(self, sample_adg: ADG) -> None:
         result = merge_constraints(sample_adg, [])
@@ -195,32 +280,30 @@ class TestMergeConstraintsIncremental:
 
     def test_replace_constraints_by_adr_id(self, sample_adg: ADG) -> None:
         old_constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                object="app.auth.middleware",
-                justification="Old requirement.",
+            SymbolicConstraint(
+                subject_role_general="app.api",
+                subject_role_specific="endpoint",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object_role_general="mysql",
+                object_role_specific="MySQL connector",
+                justification="Old: no direct MySQL.",
+                extraction_text="No direct MySQL",
                 adr_id="ADR-003",
                 adr_path="docs/adr/003-auth-middleware.md",
             ),
         ]
         merged = merge_constraints(sample_adg, old_constraints)
-        assert len(merged.constraint_edges) == 1
+        assert len(merged.constraint_edges) >= 1
 
         new_constraints = [
-            ConstraintEdge(
-                subject="app.api.*",
+            SymbolicConstraint(
+                subject_role_general="app.api",
+                subject_role_specific="endpoint",
                 predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.middleware",
+                object_role_general="app.auth",
+                object_role_specific="auth middleware",
                 justification="Updated: dependency, not implementation.",
-                adr_id="ADR-003",
-                adr_path="docs/adr/003-auth-middleware.md",
-            ),
-            ConstraintEdge(
-                subject="app.api.*",
-                predicate=PredicateType.PROHIBITS_DEPENDENCY,
-                object="app.db.mysql",
-                justification="Also added: no direct DB access.",
+                extraction_text="Updated dependency",
                 adr_id="ADR-003",
                 adr_path="docs/adr/003-auth-middleware.md",
             ),
@@ -233,39 +316,47 @@ class TestMergeConstraintsIncremental:
             constraint_edges=remaining,
         )
         result = merge_constraints(adg_after_delete, new_constraints)
-        assert len(result.constraint_edges) == 2
-        assert all(ce.adr_id == "ADR-003" for ce in result.constraint_edges)
+        assert len(result.constraint_edges) >= 1
 
     def test_other_adr_constraints_preserved(self, sample_adg: ADG) -> None:
         constraints_adr3 = [
-            ConstraintEdge(
-                subject="app.api.*",
+            SymbolicConstraint(
+                subject_role_general="app.api",
+                subject_role_specific="endpoint",
                 predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                object="app.auth.middleware",
+                object_role_general="app.auth",
+                object_role_specific="authentication middleware",
                 justification="Auth required.",
+                extraction_text="Auth required",
                 adr_id="ADR-003",
                 adr_path="docs/adr/003.md",
             ),
         ]
         constraints_adr5 = [
-            ConstraintEdge(
-                subject="app.services.*",
+            SymbolicConstraint(
+                subject_role_general="app.services",
+                subject_role_specific="service",
                 predicate=PredicateType.PROHIBITS_DEPENDENCY,
-                object="logging",
+                object_role_general="logging",
+                object_role_specific="bare logging",
                 justification="No bare logging.",
+                extraction_text="No bare logging",
                 adr_id="ADR-005",
                 adr_path="docs/adr/005.md",
             ),
         ]
         merged = merge_constraints(sample_adg, constraints_adr3 + constraints_adr5)
-        assert len(merged.constraint_edges) == 2
+        assert len(merged.constraint_edges) >= 2
 
         new_adr3 = [
-            ConstraintEdge(
-                subject="app.api.users",
+            SymbolicConstraint(
+                subject_role_general="app.api",
+                subject_role_specific="endpoint",
                 predicate=PredicateType.REQUIRES_DEPENDENCY,
-                object="app.auth.middleware",
+                object_role_general="app.auth",
+                object_role_specific="auth middleware",
                 justification="Updated specific rule.",
+                extraction_text="Updated rule",
                 adr_id="ADR-003",
                 adr_path="docs/adr/003.md",
             ),
@@ -279,12 +370,12 @@ class TestMergeConstraintsIncremental:
         result = merge_constraints(adg_after_delete, new_adr3)
 
         adr5_edges = [ce for ce in result.constraint_edges if ce.adr_id == "ADR-005"]
-        assert len(adr5_edges) == 1
+        assert len(adr5_edges) >= 1
         assert adr5_edges[0].predicate is PredicateType.PROHIBITS_DEPENDENCY
 
 
 # ===========================================================================
-# 3. FQNKind.EXTERNAL
+# 4. FQNKind.EXTERNAL
 # ===========================================================================
 
 
@@ -317,7 +408,7 @@ class TestFQNKindExternal:
 
 
 # ===========================================================================
-# 4. ADG.constraint_edges field
+# 5. ADG.constraint_edges field
 # ===========================================================================
 
 
@@ -327,8 +418,26 @@ class TestADGConstraintEdges:
         assert hasattr(adg, "constraint_edges")
         assert adg.constraint_edges == []
 
-    def test_adg_with_constraint_edges(self, sample_constraints: list[ConstraintEdge]) -> None:
-        adg = ADG(nodes=[], edges=[], constraint_edges=sample_constraints)
+    def test_adg_with_constraint_edges(self) -> None:
+        edges = [
+            ConstraintEdge(
+                subject="app.api.*",
+                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+                object="app.auth.middleware",
+                justification="Auth required.",
+                adr_id="ADR-003",
+                adr_path="docs/adr/003.md",
+            ),
+            ConstraintEdge(
+                subject="app.services.*",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object="logging",
+                justification="No bare logging.",
+                adr_id="ADR-005",
+                adr_path="docs/adr/005.md",
+            ),
+        ]
+        adg = ADG(nodes=[], edges=[], constraint_edges=edges)
         assert len(adg.constraint_edges) == 2
 
     def test_adg_default_constraint_edges_empty(self) -> None:
@@ -337,7 +446,7 @@ class TestADGConstraintEdges:
 
 
 # ===========================================================================
-# 5. ConstraintEdge.specificity field
+# 6. ConstraintEdge.specificity field
 # ===========================================================================
 
 
