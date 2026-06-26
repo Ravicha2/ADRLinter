@@ -17,13 +17,13 @@ Issue #8 tracks CPT implementation. ADR 005 defined the two-phase traversal desi
 CPT operates in four steps:
 
 1. **Changed FQN**: Commit diff identifies entry points into the ADG.
-2. **K-hop BFS**: Traverse structural edges (CONTAINS, CALLS, IMPORTS, INHERITS) both outward and inward from changed FQNs, up to k hops (default 3, tunable). Result: neighborhood `set[FQN]` + reachable `set[Edge]`.
-3. __Constraint retrieval via neighborhood matching__: For each FQN in the k-hop neighborhood, check against constraint subject/object patterns using `fqn_matches_pattern`. Any constraint where subject or object matches something in the neighborhood is retrieved as relevant.
+2. **Full-ADG matching and reachability** *(superseded: k-hop BFS and neighborhood matching replaced by [ADR 009](./009-sound-cpt-reachability.md))*: Constraint matching uses all ADG node FQNs. Reachability uses the full ADG edge list.
+3. **Constraint retrieval via global matching**: For each FQN in the ADG, check against constraint subject/object patterns using `fqn_matches_pattern`. Any constraint where subject or object matches something in the ADG is retrieved as relevant.
 4. **Resolution**: For each retrieved constraint, check the predicate against structural facts from step 2 to determine pass/violation. Basic resolution handles specificity conflicts and deduplication.
 
-### 2. Traversal: both directions, 3-hop limit
+### 2. Traversal: full ADG reachability *(superseded by [ADR 009](./009-sound-cpt-reachability.md))*
 
-Both outward (changed FQN's actions) and inward (change's impact on dependents). 3 hops is the starting point, tunable based on observation.
+~~Both outward (changed FQN's actions) and inward (change's impact on dependents). 3 hops is the starting point, tunable based on observation.~~ Replaced by full-ADG reachability without k-hop restriction.
 
 ### 3. `fqn_matches_pattern`: new matching primitive
 

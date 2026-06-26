@@ -4,7 +4,7 @@ Date: 2026-06-12
 
 ## Status
 
-Accepted
+Accepted (Phase 1 k-hop BFS superseded by [ADR 009](./009-sound-cpt-reachability.md))
 
 ## Context
 
