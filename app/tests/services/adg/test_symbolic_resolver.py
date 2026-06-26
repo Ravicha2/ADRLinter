@@ -1,5 +1,5 @@
-"""Tests for the Symbolic Resolver: substring matching, kind filtering, CONTAINS
-walks, external dependency bypass, and end-to-end resolution."""
+"""Tests for the Symbolic Resolver: substring matching, CONTAINS walks,
+external dependency bypass, and end-to-end resolution."""
 
 from __future__ import annotations
 
@@ -18,7 +18,6 @@ from services.models import (
 )
 from services.adg.symbolic_resolver import (
     _general_match,
-    _kind_filter,
     _specific_narrow,
     _walk_contains,
     resolve_symbolic_constraints,
@@ -60,40 +59,7 @@ def sample_adg() -> ADG:
 
 
 # ===========================================================================
-# 1. _kind_filter
-# ===========================================================================
-
-
-class TestKindFilter:
-    def test_filters_by_allowed_kinds(self) -> None:
-        nodes = [
-            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="", line_start=0, line_end=0, start_byte=0, end_byte=0),
-            FQNNode(fqn=FQN.from_dotted("app.Foo"), kind=FQNKind.CLASS, file_path="", line_start=0, line_end=0, start_byte=0, end_byte=0),
-            FQNNode(fqn=FQN.from_dotted("app.bar"), kind=FQNKind.FUNCTION, file_path="", line_start=0, line_end=0, start_byte=0, end_byte=0),
-        ]
-        result = _kind_filter(nodes, {"module"})
-        assert len(result) == 1
-        assert result[0].fqn == FQN.from_dotted("app")
-
-    def test_multiple_allowed_kinds(self) -> None:
-        nodes = [
-            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="", line_start=0, line_end=0, start_byte=0, end_byte=0),
-            FQNNode(fqn=FQN.from_dotted("app.Foo"), kind=FQNKind.CLASS, file_path="", line_start=0, line_end=0, start_byte=0, end_byte=0),
-            FQNNode(fqn=FQN.from_dotted("app.bar"), kind=FQNKind.FUNCTION, file_path="", line_start=0, line_end=0, start_byte=0, end_byte=0),
-        ]
-        result = _kind_filter(nodes, {"class", "function"})
-        assert len(result) == 2
-
-    def test_empty_kinds_returns_empty(self) -> None:
-        nodes = [
-            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="", line_start=0, line_end=0, start_byte=0, end_byte=0),
-        ]
-        result = _kind_filter(nodes, set())
-        assert len(result) == 0
-
-
-# ===========================================================================
-# 2. _general_match
+# 1. _general_match
 # ===========================================================================
 
 
@@ -114,7 +80,7 @@ class TestGeneralMatch:
 
 
 # ===========================================================================
-# 3. _walk_contains
+# 2. _walk_contains
 # ===========================================================================
 
 
@@ -132,7 +98,7 @@ class TestWalkContains:
 
 
 # ===========================================================================
-# 4. _specific_narrow
+# 3. _specific_narrow
 # ===========================================================================
 
 
@@ -178,7 +144,7 @@ class TestSpecificNarrow:
 
 
 # ===========================================================================
-# 5. resolve_symbolic_constraints: integration tests
+# 4. resolve_symbolic_constraints: integration tests
 # ===========================================================================
 
 
@@ -203,9 +169,8 @@ class TestResolveSymbolicConstraints:
     def test_implementation_predicate_matches_class_via_contains(self, sample_adg: ADG) -> None:
         """requires_implementation matches class nodes under the general path.
 
-        kind_filter removes modules before general_match, so app.auth.Middleware
-        is found directly by general_match (general_wildcard), not by CONTAINS
-        walk + specific narrow.
+        kind-agnostic search finds app.auth.Middleware via specific narrow
+        on all descendants, even though requires_implementation kinds exclude modules.
         """
         sc = SymbolicConstraint(
             subject_role_general="app",
@@ -222,9 +187,8 @@ class TestResolveSymbolicConstraints:
         assert len(resolved) >= 1
         object_fqns = {rc.constraint_edge.object for rc in resolved}
         assert "app.auth.Middleware" in object_fqns
-        # Module nodes are filtered out by kind_filter before general_match,
-        # so the class node is found via general_wildcard, not specific narrow
-        assert resolved[0].object_matched_by == "general_wildcard"
+        # Kind-agnostic search finds the class node via specific narrow
+        assert resolved[0].object_matched_by == "specific"
 
     def test_contains_walk_with_specific_narrow(self) -> None:
         """Dependency predicate: general_match finds module, CONTAINS walk
@@ -259,7 +223,7 @@ class TestResolveSymbolicConstraints:
         resolved = resolve_symbolic_constraints([sc], adg)
         assert len(resolved) >= 1
         subject_fqns = {rc.constraint_edge.subject for rc in resolved}
-        assert "app.services.user" in subject_fqns
+        assert "app.services.user.*" in subject_fqns
         assert resolved[0].subject_matched_by == "specific"
 
     def test_general_wildcard_match(self, sample_adg: ADG) -> None:

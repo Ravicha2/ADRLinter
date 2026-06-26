@@ -13,19 +13,12 @@ from services.models import (
     ConstraintEdge,
     FQNKind,
     FQNNode,
-    OBJECT_KINDS,
     PredicateType,
     ResolvedConstraint,
     SymbolicConstraint,
-    SUBJECT_KINDS,
 )
 
 log = logging.getLogger(__name__)
-
-
-def _kind_filter(nodes: list[FQNNode], kinds: set[str]) -> list[FQNNode]:
-    """Keep nodes whose FQNKind matches one of the allowed kinds."""
-    return [n for n in nodes if n.kind.value in kinds]
 
 
 def _general_match(role_general: str, candidates: list[FQNNode]) -> list[FQNNode]:
@@ -43,33 +36,32 @@ def _general_match(role_general: str, candidates: list[FQNNode]) -> list[FQNNode
 
 
 def _walk_contains(fqn: FQN, edges: list, all_nodes: list[FQNNode]) -> list[FQNNode]:
-    """Walk CONTAINS edges from a parent FQN to find direct children."""
-    child_fqns = {
-        edge.target for edge in edges
-        if edge.kind == "CONTAINS" and edge.source == str(fqn)
-    }
-    return [n for n in all_nodes if str(n.fqn) in child_fqns]
+    """Walk CONTAINS edges to find all descendants (not just direct children)."""
+    fqn_prefix = str(fqn) + "."
+    return [n for n in all_nodes if str(n.fqn).startswith(fqn_prefix)]
 
 
 def _specific_narrow(role_specific: str, candidates: list[FQNNode]) -> list[FQNNode]:
     """Substring-match role_specific against the last segment of candidate FQNs.
 
     Priority: exact > prefix overlap > substring containment.
+    Case-insensitive comparison so "API" matches "api".
     """
     if not candidates:
         return []
 
+    role_lower = role_specific.lower()
     exact = []
     prefix = []
     substring = []
 
     for node in candidates:
-        short_name = node.fqn.parts[-1] if node.fqn.parts else ""
-        if short_name == role_specific:
+        short_name = (node.fqn.parts[-1] if node.fqn.parts else "").lower()
+        if short_name == role_lower:
             exact.append(node)
-        elif short_name.startswith(role_specific) or role_specific.startswith(short_name):
+        elif short_name.startswith(role_lower) or role_lower.startswith(short_name):
             prefix.append(node)
-        elif role_specific in short_name:
+        elif role_lower in short_name:
             substring.append(node)
 
     return exact or prefix or substring
@@ -78,7 +70,6 @@ def _specific_narrow(role_specific: str, candidates: list[FQNNode]) -> list[FQNN
 def _resolve_side(
     role_general: str,
     role_specific: str,
-    kinds: set[str],
     adg: ADG,
 ) -> tuple[list[FQNNode], str]:
     """Resolve one side (subject or object) of a SymbolicConstraint.
@@ -86,30 +77,32 @@ def _resolve_side(
     Returns (matched_nodes, match_source) where match_source is one of:
       "specific" | "general_wildcard" | "fallback" | "no_match"
     """
-    kind_filtered = _kind_filter(adg.nodes, kinds)
-
-    # Step 2: general match
-    general_matches = _general_match(role_general, kind_filtered)
+    # Kind-agnostic search: LLM-generated role_specific may reference modules
+    # even when kinds exclude them, so search all nodes and verify kind after.
+    general_matches = _general_match(role_general, adg.nodes)
 
     if general_matches:
-        # Step 3: walk CONTAINS children and narrow by role_specific
+        # Walk all descendants and narrow by role_specific (kind-agnostic:
+        # LLM-generated role_specific may target modules even when kinds
+        # exclude them, so search all nodes).
         children = []
         for parent in general_matches:
             children.extend(_walk_contains(parent.fqn, adg.edges, adg.nodes))
-        children_kind = _kind_filter(children, kinds)
 
-        if children_kind and role_specific:
-            narrowed = _specific_narrow(role_specific, children_kind)
+        if role_specific:
+            narrowed = _specific_narrow(role_specific, children)
             if narrowed:
                 return narrowed, "specific"
 
-        # No specific narrowing needed or possible; use general wildcard
-        return general_matches, "general_wildcard"
+        # When specific narrowing fails, return only the shallowest (shortest
+        # FQN) match instead of the entire subtree. CPT walks CONTAINS at
+        # detection time, so pre-expanding just creates cross-product bloom.
+        shallowest = min(general_matches, key=lambda n: len(str(n.fqn).split(".")))
+        return [shallowest], "general_wildcard"
 
-    # Step 5: fallback - substring-match role_specific against all module segments
+    # Step 5: fallback - substring-match role_specific against all nodes
     if role_specific:
-        all_kind = _kind_filter(adg.nodes, kinds)
-        fallback = _specific_narrow(role_specific, all_kind)
+        fallback = _specific_narrow(role_specific, adg.nodes)
         if fallback:
             return fallback, "fallback"
 
@@ -122,11 +115,10 @@ def resolve_symbolic_constraints(
     """Resolve SymbolicConstraints against the ADG into ResolvedConstraints.
 
     For each SymbolicConstraint:
-    1. Kind filter both sides using SUBJECT_KINDS/OBJECT_KINDS
-    2. General match role_general against ADG nodes
-    3. Walk CONTAINS and specific narrow with role_specific
-    4. Fallback: substring match role_specific
-    5. No match: skip and log
+    1. General match role_general against ADG nodes
+    2. Walk CONTAINS and specific narrow with role_specific
+    3. Fallback: substring match role_specific
+    4. No match: skip and log
 
     External dependencies (dependency predicates with no ADG match) create
     EXTERNAL nodes directly.
@@ -138,14 +130,12 @@ def resolve_symbolic_constraints(
 
     for sc in symbolic:
         pred_value = sc.predicate.value
-        subject_kinds = SUBJECT_KINDS.get(pred_value, {"module"})
-        object_kinds = OBJECT_KINDS.get(pred_value, {"module"})
 
         subject_nodes, subject_source = _resolve_side(
-            sc.subject_role_general, sc.subject_role_specific, subject_kinds, adg,
+            sc.subject_role_general, sc.subject_role_specific, adg,
         )
         object_nodes, object_source = _resolve_side(
-            sc.object_role_general, sc.object_role_specific, object_kinds, adg,
+            sc.object_role_general, sc.object_role_specific, adg,
         )
 
         # External dependency shortcut: if object has no ADG match and this is
@@ -181,9 +171,13 @@ def resolve_symbolic_constraints(
             )
             continue
 
-        # ponytail: simplest resolution - one edge per (subject, object) pair
-        subject_fqns = sorted({str(n.fqn) for n in subject_nodes})
-        object_fqns = sorted({str(n.fqn) for n in object_nodes})
+        # ponytail: module nodes get wildcard suffix so CPT matches descendants;
+        # non-module (class, function, external) stay exact.
+        def _pattern(n: FQNNode) -> str:
+            return str(n.fqn) + (".*" if n.kind == FQNKind.MODULE else "")
+
+        subject_fqns = sorted({_pattern(n) for n in subject_nodes})
+        object_fqns = sorted({_pattern(n) for n in object_nodes})
 
         for subj_fqn in subject_fqns:
             for obj_fqn in object_fqns:
