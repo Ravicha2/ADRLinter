@@ -115,7 +115,6 @@ def main() -> None:
     print("\n[detect] CPT detect")
     cpt_result = cpt_detect(diff_result, merged)
 
-    print(f"  neighborhood: {len(cpt_result.neighborhood)}")
     print(f"  violations:   {len(cpt_result.violations)}")
     print(f"  orphans:      {len(cpt_result.orphans)}")
 

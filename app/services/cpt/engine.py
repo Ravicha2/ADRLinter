@@ -7,6 +7,7 @@ from services.fqn import FQN
 from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, PredicateType
 from services.cpt.resolution import Violation, resolve, suppress_outweighed_prohibits
 from services.resolver import MatchStatus, fqn_matches_pattern
+from collections.abc import Iterable
 from collections import deque, defaultdict
 
 log = logging.getLogger(__name__)
@@ -19,7 +20,6 @@ class CPTResult:
     violations: list[Violation] = field(default_factory=list)
     orphans: list[ConstraintEdge] = field(default_factory=list)
     self_loop_constraints: list[ConstraintEdge] = field(default_factory=list)
-    neighborhood: set[FQN] = field(default_factory=set)
 
 
 @dataclass
@@ -29,7 +29,7 @@ class MatchedConstraint:
     object_matches: list[tuple[FQN, MatchStatus]]
 
 
-def _build_adjacency(edges: set[Edge]) -> dict[str, list[Edge]]:
+def _build_adjacency(edges: Iterable[Edge]) -> dict[str, list[Edge]]:
     adjacency: dict[str, list[Edge]] = defaultdict(list)
     for edge in edges:
         adjacency[edge.source].append(edge)
@@ -54,50 +54,13 @@ def _reachable(start: str, target: str, adjacency: dict[str, list[Edge]], kinds:
     return False
 
 
-def bfs_neighborhood(adg: ADG, changed_fqns: list[ChangedFQN], k: int = 3) -> tuple[set[FQN], set[Edge]]:
-    by_source: dict[str, list[Edge]] = defaultdict(list)
-    by_target: dict[str, list[Edge]] = defaultdict(list)
-    for edge in adg.edges:
-        by_source[edge.source].append(edge)
-        by_target[edge.target].append(edge)
-
-    neighborhood: set[FQN] = set()
-    current_hop: set[FQN] = {changed_fqn.fqn for changed_fqn in changed_fqns}
-    neighborhood |= current_hop
-
-    for _ in range(k):
-        next_hop: set[FQN] = set()
-        for fqn in current_hop:
-            fqn_str = str(fqn)
-            for edge in by_source.get(fqn_str, ()):
-                target_fqn = FQN.from_dotted_safe(edge.target)
-                if target_fqn and target_fqn not in neighborhood:
-                    next_hop.add(target_fqn)
-            for edge in by_target.get(fqn_str, ()):
-                source_fqn = FQN.from_dotted_safe(edge.source)
-                if source_fqn and source_fqn not in neighborhood:
-                    next_hop.add(source_fqn)
-        if not next_hop:
-            break
-        neighborhood |= next_hop
-        current_hop = next_hop
-
-    # Collect ALL edges whose both endpoints are in neighborhood
-    neighborhood_strs = {str(f) for f in neighborhood}
-    reachable: set[Edge] = set()
-    for edge in adg.edges:
-        if edge.source in neighborhood_strs and edge.target in neighborhood_strs:
-            reachable.add(edge)
-
-    return neighborhood, reachable
-
-
-def match_constraints(neighborhood: set[FQN], adg: ADG) -> dict[int, MatchedConstraint]:
+def match_constraints(adg: ADG) -> dict[int, MatchedConstraint]:
     matched: dict[int, MatchedConstraint] = {}
     for constraint in adg.constraint_edges:
         subject_matches: list[tuple[FQN, MatchStatus]] = []
         object_matches: list[tuple[FQN, MatchStatus]] = []
-        for fqn in neighborhood:
+        all_fqns = {node.fqn for node in adg.nodes}
+        for fqn in all_fqns:
             subj_status = fqn_matches_pattern(fqn, constraint.subject)
             if subj_status != MatchStatus.NO_MATCH:
                 subject_matches.append((fqn, subj_status))
@@ -188,9 +151,8 @@ def check_change_triggered_predicates(
     return violations
 
 
-def detect(diff_result: DiffResult, adg: ADG, k: int = 3) -> CPTResult:
-    neighborhood, reachable = bfs_neighborhood(adg, diff_result.changed_fqns, k)
-    adjacency = _build_adjacency(reachable)
+def detect(diff_result: DiffResult, adg: ADG) -> CPTResult:
+    adjacency = _build_adjacency(adg.edges)
 
     # filter self-loop constraints (subject == object), surface as informational
     self_loop_constraints: list[ConstraintEdge] = [
@@ -206,7 +168,7 @@ def detect(diff_result: DiffResult, adg: ADG, k: int = 3) -> CPTResult:
 
     safe_edges = [c for c in adg.constraint_edges if c.subject != c.object]
     safe_adg = ADG(nodes=adg.nodes, edges=adg.edges, constraint_edges=safe_edges)
-    matched = match_constraints(neighborhood, safe_adg)
+    matched = match_constraints(safe_adg)
 
     all_violations: list[Violation] = []
     all_violations.extend(check_structural_predicates(matched, adjacency))
@@ -224,7 +186,7 @@ def detect(diff_result: DiffResult, adg: ADG, k: int = 3) -> CPTResult:
         c for c in adg.constraint_edges if id(c) not in matched
     ]
 
-    return CPTResult(violations=violations, orphans=orphans, self_loop_constraints=self_loop_constraints, neighborhood=neighborhood)
+    return CPTResult(violations=violations, orphans=orphans, self_loop_constraints=self_loop_constraints)
 
 
 if __name__ == "__main__":
@@ -263,4 +225,3 @@ if __name__ == "__main__":
     result = detect(diff, adg)
     for v in result.violations:
         print(f"  {v.constraint.predicate.value}: {v.evidence}")
-    print(f"Neighborhood: {result.neighborhood}")
