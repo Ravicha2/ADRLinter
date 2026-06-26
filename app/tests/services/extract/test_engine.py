@@ -2,7 +2,7 @@
 
 Public interface under test:
     LangExtractConfig: config dataclass (model_id, model_url, api_key_env)
-    ADRExtractor: extracts ConstraintEdge objects from ADR text
+    ADRExtractor: extracts SymbolicConstraint objects from ADR text
         - extract_constraints(adr_text, adr_id, adr_path) -> ExtractionResult
         - extract_from_file(adr_path) -> ExtractionResult
         - extract_from_directory(adr_dir) -> list[ExtractionResult]
@@ -19,7 +19,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from services.models import ConstraintEdge, ExtractionError, ExtractionResult, PredicateType
+from services.models import ExtractionError, ExtractionResult, PredicateType
 
 
 # ---------------------------------------------------------------------------
@@ -28,47 +28,26 @@ from services.models import ConstraintEdge, ExtractionError, ExtractionResult, P
 
 
 def _make_extraction(
-    subject: str = "services.*",
+    subject_role_general: str = "services",
+    subject_role_specific: str = "service",
     predicate: str = "prohibits_dependency",
-    object_: str = "db.mysql",
+    object_role_general: str = "db",
+    object_role_specific: str = "MySQL connector",
     justification: str = "Direct MySQL connections are prohibited.",
-    char_start: int = 45,
-    char_end: int = 120,
+    extraction_text: str = "",
 ) -> MagicMock:
-    """Create a mock langextract Extraction object."""
+    """Create a mock langextract Extraction object with symbolic fields."""
     extraction = MagicMock()
     extraction.extraction_class = "adr_constraint"
-    extraction.extraction_text = f"{subject} {predicate} {object_}"
+    extraction.extraction_text = extraction_text or f"{subject_role_general} {predicate} {object_role_general}"
     extraction.attributes = {
-        "subject": subject,
+        "subject_role_general": subject_role_general,
+        "subject_role_specific": subject_role_specific,
         "predicate": predicate,
-        "object": object_,
+        "object_role_general": object_role_general,
+        "object_role_specific": object_role_specific,
         "justification": justification,
     }
-    # char_interval is an object with start_pos and end_pos
-    char_interval = MagicMock()
-    char_interval.start_pos = char_start
-    char_interval.end_pos = char_end
-    extraction.char_interval = char_interval
-    return extraction
-
-
-def _make_extraction_no_char_interval(
-    subject: str = "services.*",
-    predicate: str = "prohibits_dependency",
-    object_: str = "db.mysql",
-    justification: str = "No grounding.",
-) -> MagicMock:
-    """Create a mock extraction without char_interval (should be skipped)."""
-    extraction = MagicMock()
-    extraction.extraction_class = "adr_constraint"
-    extraction.attributes = {
-        "subject": subject,
-        "predicate": predicate,
-        "object": object_,
-        "justification": justification,
-    }
-    extraction.char_interval = None
     return extraction
 
 
@@ -236,34 +215,32 @@ class TestExtractConstraintsHappyPath:
         )
 
         assert len(result.constraints) == 1
-        assert result.constraints[0].subject == "services.*"
+        assert result.constraints[0].subject_role_general == "services"
         assert result.constraints[0].predicate is PredicateType.PROHIBITS_DEPENDENCY
-        assert result.constraints[0].object == "db.mysql"
+        assert result.constraints[0].object_role_general == "db"
         assert result.constraints[0].adr_id == "ADR-001"
         assert result.errors == []
 
     @patch("services.extract.engine.lx.extract")
     def test_multiple_constraints(self, mock_extract: MagicMock) -> None:
-        """Multiple extractions produce multiple ConstraintEdges."""
+        """Multiple extractions produce multiple SymbolicConstraints."""
         from services.extract import ADRExtractor, LangExtractConfig
 
         mock_extract.return_value = _make_langextract_result(
             [
                 _make_extraction(
-                    subject="services.*",
+                    subject_role_general="services",
                     predicate="prohibits_dependency",
-                    object_="db.mysql",
+                    object_role_general="db",
+                    object_role_specific="MySQL connector",
                     justification="Direct MySQL connections prohibited.",
-                    char_start=45,
-                    char_end=120,
                 ),
                 _make_extraction(
-                    subject="services.*",
+                    subject_role_general="services",
                     predicate="requires_implementation",
-                    object_="db.query",
+                    object_role_general="db",
+                    object_role_specific="query interface",
                     justification="All services must route queries through this interface.",
-                    char_start=10,
-                    char_end=80,
                 ),
             ]
         )
@@ -300,6 +277,112 @@ class TestExtractConstraintsHappyPath:
         call_kwargs = mock_extract.call_args
         assert "prompt_description" in call_kwargs.kwargs or len(call_kwargs.args) > 0
 
+    @patch("services.extract.engine.lx.extract")
+    def test_package_context_injected_into_prompt(self, mock_extract: MagicMock) -> None:
+        """When package_context is set, prompt_description passed to lx.extract names
+        the root package and its immediate children so the LLM uses real FQNs, not 'app.*'.
+        """
+        from services.extract import ADRExtractor, LangExtractConfig
+
+        mock_extract.return_value = _make_langextract_result([])
+
+        config = LangExtractConfig(api_key_env="TEST_API_KEY")
+        extractor = ADRExtractor(
+            config=config,
+            package_context=["openlobby", "openlobby.core", "openlobby.settings"],
+        )
+        extractor.extract_constraints(
+            adr_text="Some text",
+            adr_id="ADR-001",
+            adr_path="docs/adr/ADR-001.md",
+        )
+
+        prompt = mock_extract.call_args.kwargs["prompt_description"]
+        assert "openlobby" in prompt
+        assert "openlobby.core" in prompt
+
+    @patch("services.extract.engine.lx.extract")
+    def test_no_package_context_keeps_prompt_unchanged(self, mock_extract: MagicMock) -> None:
+        """Without package_context, prompt_description equals the module-level PROMPT_DESCRIPTION."""
+        from services.extract import ADRExtractor, LangExtractConfig
+        from services.extract.prompts import PROMPT_DESCRIPTION
+
+        mock_extract.return_value = _make_langextract_result([])
+
+        config = LangExtractConfig(api_key_env="TEST_API_KEY")
+        extractor = ADRExtractor(config=config)
+        extractor.extract_constraints(
+            adr_text="Some text",
+            adr_id="ADR-001",
+            adr_path="docs/adr/ADR-001.md",
+        )
+
+        assert mock_extract.call_args.kwargs["prompt_description"] == PROMPT_DESCRIPTION
+
+
+# ===========================================================================
+# 1c. derive_package_context: derive root + immediate children from an ADG
+# ===========================================================================
+
+
+class TestDerivePackageContext:
+    """derive_package_context(adg) returns all top-level module packages,
+    excluding 'tests'. The LLM uses this to pick role_general values.
+    """
+
+    def _adg_with_fqns(self, dotted_names: list[str]) -> "ADG":
+        from services.fqn import FQN
+        from services.models import ADG, FQNKind, FQNNode
+
+        nodes = []
+        for dotted in dotted_names:
+            nodes.append(FQNNode(
+                fqn=FQN.from_dotted(dotted),
+                kind=FQNKind.MODULE,
+                file_path=f"{dotted.replace('.', '/')}.py",
+                line_start=0,
+                line_end=0,
+            ))
+        return ADG(nodes=nodes)
+
+    def test_returns_all_top_level_modules(self) -> None:
+        from services.extract.engine import derive_package_context
+
+        adg = self._adg_with_fqns([
+            "openlobby",
+            "openlobby.settings",
+            "openlobby.core",
+            "openlobby.core.models",
+            "openlobby.core.auth",
+            "openlobby.core.search",
+        ])
+        ctx = derive_package_context(adg)
+        # Should return all unique top-level module names
+        assert "openlobby" in ctx
+        # Only top-level, not subpackages
+        assert "openlobby.settings" not in ctx
+        assert "openlobby.core" not in ctx
+
+    def test_excludes_tests_root(self) -> None:
+        from services.extract.engine import derive_package_context
+
+        adg = self._adg_with_fqns([
+            "openlobby",
+            "openlobby.core",
+            "tests",
+            "tests.dummy",
+            "tests.schema.test_x",
+        ])
+        ctx = derive_package_context(adg)
+        assert "tests" not in ctx
+        assert "openlobby" in ctx
+
+    def test_returns_none_for_empty_adg(self) -> None:
+        from services.extract.engine import derive_package_context
+        from services.models import ADG
+
+        assert derive_package_context(ADG()) == []
+
 
 # ===========================================================================
 # 2b. PROMPT_DESCRIPTION content
@@ -332,15 +415,16 @@ class TestPromptDescription:
 
         assert "wildcard" in PROMPT_DESCRIPTION.lower() or "namespace" in PROMPT_DESCRIPTION.lower()
 
-    def test_bare_wildcard_prohibited(self) -> None:
+    def test_bare_wildcard_not_used_in_role_general(self) -> None:
         from services.extract import PROMPT_DESCRIPTION
 
-        assert "never" in PROMPT_DESCRIPTION.lower() or "bare" in PROMPT_DESCRIPTION.lower()
+        # Wildcards are no longer used in role_general; resolution implies them
+        assert "wildcard" in PROMPT_DESCRIPTION.lower() or "role_general" in PROMPT_DESCRIPTION
 
-    def test_objects_must_be_fqns(self) -> None:
+    def test_role_general_field_described(self) -> None:
         from services.extract import PROMPT_DESCRIPTION
 
-        assert "FQN" in PROMPT_DESCRIPTION
+        assert "role_general" in PROMPT_DESCRIPTION or "subject_role_general" in PROMPT_DESCRIPTION
 
 
 # ===========================================================================
@@ -371,11 +455,20 @@ class TestFewShotExamples:
             "prohibits_implementation",
         }
 
-    def test_negative_example_exists(self) -> None:
+    def test_flask_positive_example_exists(self) -> None:
+        """The 'we will use Flask' positive example trains the LLM to emit a
+        REQUIRES_DEPENDENCY constraint for tech-choice ADRs."""
         from services.extract import FEW_SHOT_EXAMPLES
 
-        negative = [ex for ex in FEW_SHOT_EXAMPLES if len(ex.extractions) == 0]
-        assert len(negative) == 1
+        flask_examples = [
+            ex for ex in FEW_SHOT_EXAMPLES
+            if any(
+                a.get("object_role_general") == "flask"
+                for a in (e.attributes for e in (ex.extractions or []))
+                if isinstance(a, dict)
+            )
+        ]
+        assert len(flask_examples) >= 1
 
 
 
@@ -507,27 +600,6 @@ class TestExtractConstraintsMalformed:
     """Malformed extractions are skipped and reported as errors."""
 
     @patch("services.extract.engine.lx.extract")
-    def test_missing_char_interval_accepted(self, mock_extract: MagicMock) -> None:
-        """Extractions without char_interval are accepted with None interval."""
-        from services.extract import ADRExtractor, LangExtractConfig
-
-        mock_extract.return_value = _make_langextract_result(
-            [_make_extraction_no_char_interval()]
-        )
-
-        config = LangExtractConfig(api_key_env="TEST_API_KEY")
-        extractor = ADRExtractor(config=config)
-        result = extractor.extract_constraints(
-            adr_text=ADR_001_TEXT,
-            adr_id="ADR-001",
-            adr_path="docs/adr/ADR-001-mysql-storage.md",
-        )
-
-        assert len(result.constraints) == 1
-        assert result.constraints[0].char_interval is None
-        assert len(result.errors) == 0
-
-    @patch("services.extract.engine.lx.extract")
     def test_invalid_predicate_skipped(self, mock_extract: MagicMock) -> None:
         """Extractions with invalid predicates are skipped and logged."""
         from services.extract import ADRExtractor, LangExtractConfig
@@ -553,14 +625,12 @@ class TestExtractConstraintsMalformed:
         from services.extract import ADRExtractor, LangExtractConfig
 
         valid = _make_extraction(
-            subject="services.*",
+            subject_role_general="services",
             predicate="prohibits_dependency",
-            object_="db.mysql",
+            object_role_general="db",
             justification="Direct MySQL connections prohibited.",
-            char_start=45,
-            char_end=120,
         )
-        malformed = _make_extraction_no_char_interval()
+        malformed = _make_extraction(predicate="requires")
 
         mock_extract.return_value = _make_langextract_result([valid, malformed])
 
@@ -572,9 +642,8 @@ class TestExtractConstraintsMalformed:
             adr_path="docs/adr/ADR-001-mysql-storage.md",
         )
 
-        assert len(result.constraints) == 2
-        assert len(result.errors) == 0
-        assert result.constraints[1].char_interval is None
+        assert len(result.constraints) == 1
+        assert len(result.errors) == 1
 
 
 # ===========================================================================

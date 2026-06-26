@@ -286,26 +286,6 @@ class TestMatchConstraints:
         matched = match_constraints(neighborhood, adg)
         assert len(matched) == 0
 
-    def test_segment_match_retrieves_constraint(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood, match_constraints
-
-        constraints = [
-            ConstraintEdge(
-                subject="app.middleware.auth",
-                predicate=PredicateType.REQUIRES_IMPLEMENTATION,
-                object="app.auth",
-                justification="test",
-                adr_id="ADR-010",
-                adr_path="docs/adr/010.md",
-            ),
-        ]
-        adg = ADG(nodes=sample_adg.nodes, edges=sample_adg.edges, constraint_edges=constraints)
-        # k=3 so app.auth (object) is in neighborhood
-        changed = [_changed_fqn("app.middleware.auth")]
-        neighborhood, _ = bfs_neighborhood(adg, changed, k=3)
-        matched = match_constraints(neighborhood, adg)
-        assert any(mc.constraint.adr_id == "ADR-010" for mc in matched.values())
-
     def test_constraint_with_empty_subject_bucket_is_orphan(self, sample_adg: ADG) -> None:
         from services.cpt.engine import match_constraints
 
@@ -336,7 +316,7 @@ class TestCheckStructuralPredicates:
 
     def test_prohibits_dependency_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -362,7 +342,7 @@ class TestCheckStructuralPredicates:
 
     def test_prohibits_dependency_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -387,7 +367,7 @@ class TestCheckStructuralPredicates:
 
     def test_prohibits_implementation_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.*",
@@ -421,7 +401,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_dependency_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -446,7 +426,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_dependency_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -472,7 +452,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_implementation_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.middleware",
@@ -496,7 +476,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_implementation_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.middleware",
@@ -523,7 +503,7 @@ class TestCheckChangeTriggeredPredicates:
 
     def test_requires_skips_constraint_if_changed_not_in_subject(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -566,7 +546,7 @@ class TestResolve:
         adr_id: str = "ADR-001",
     ) -> "Violation":
         from services.cpt.engine import Violation
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject=subject,
@@ -837,7 +817,7 @@ class TestCptDataModels:
 
     def test_violation_fields(self) -> None:
         from services.cpt.engine import Violation
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -868,15 +848,17 @@ class TestCptDataModels:
         result = CPTResult(
             violations=[],
             orphans=[],
+            self_loop_constraints=[],
             neighborhood={FQN.from_dotted("app")},
         )
         assert result.violations == []
         assert result.orphans == []
+        assert result.self_loop_constraints == []
         assert FQN.from_dotted("app") in result.neighborhood
 
     def test_matched_constraint_fields(self) -> None:
         from services.cpt.engine import MatchedConstraint
-        from services.matching import MatchStatus
+        from services.resolver import MatchStatus
 
         constraint = ConstraintEdge(
             subject="app.api.*",
@@ -894,3 +876,88 @@ class TestCptDataModels:
         assert mc.constraint.adr_id == "ADR-003"
         assert len(mc.subject_matches) == 1
         assert len(mc.object_matches) == 1
+
+
+# ===========================================================================
+# 8. Self-loop constraint: subject == object produces no false-positive violations
+# ===========================================================================
+
+
+class TestSelfLoopConstraint:
+    """Regression: exclusion-pattern extraction where owner and object resolve to
+    the same FQN (e.g. 'only app.auth.middleware may implement authentication')
+    must not produce nonsensical violations like 'X does not implement X'."""
+
+    @staticmethod
+    def _make_self_loop(**overrides: str) -> ConstraintEdge:
+        """Construct a self-loop constraint by creating a valid one then mutating
+        in-place to bypass __post_init__ validation (simulates deserialization)."""
+        c = ConstraintEdge(
+            subject=overrides.get("subject", "app.auth.middleware"),
+            predicate=PredicateType.REQUIRES_IMPLEMENTATION,
+            object="__placeholder__",
+            justification=overrides.get("justification", "Self-loop constraint."),
+            adr_id=overrides.get("adr_id", "ADR-010"),
+            adr_path="docs/adr/010.md",
+        )
+        c.object = overrides.get("subject", "app.auth.middleware")
+        return c
+
+    def test_detect_surfaces_self_loop_constraint(self, sample_adg: ADG) -> None:
+        from services.cpt.engine import detect
+
+        self_loop = self._make_self_loop(
+            subject="app.auth.middleware",
+            adr_id="ADR-010",
+        )
+        adg = ADG(
+            nodes=sample_adg.nodes,
+            edges=sample_adg.edges,
+            constraint_edges=[self_loop],
+        )
+        diff = DiffResult(
+            commit_sha="abc123",
+            parent_sha="def456",
+            changed_files=[FileChange(path="app/auth/middleware.py", status="modified")],
+            changed_fqns=[_changed_fqn("app.auth.middleware")],
+        )
+        result = detect(diff, adg, k=3)
+        # Self-loop constraint must not produce violations
+        assert len(result.violations) == 0
+        # Self-loop constraint surfaced for human review
+        assert len(result.self_loop_constraints) == 1
+        assert result.self_loop_constraints[0].adr_id == "ADR-010"
+
+    def test_detect_mixed_self_loop_and_normal(self, sample_adg: ADG) -> None:
+        from services.cpt.engine import detect
+
+        self_loop = self._make_self_loop(
+            subject="app.auth.middleware",
+            justification="Self-loop: no one but auth middleware implements auth.",
+            adr_id="ADR-010",
+        )
+        normal = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="app.models.*",
+            justification="API must not depend on models.",
+            adr_id="ADR-003",
+            adr_path="docs/adr/003.md",
+        )
+        adg = ADG(
+            nodes=sample_adg.nodes,
+            edges=sample_adg.edges,
+            constraint_edges=[self_loop, normal],
+        )
+        diff = DiffResult(
+            commit_sha="abc123",
+            parent_sha="def456",
+            changed_files=[FileChange(path="app/api/users.py", status="modified")],
+            changed_fqns=[_changed_fqn("app.api.users")],
+        )
+        result = detect(diff, adg, k=3)
+        # Normal constraint still processed
+        assert any(v.constraint.adr_id == "ADR-003" for v in result.violations)
+        # Self-loop filtered out, surfaced separately
+        assert len(result.self_loop_constraints) == 1
+        assert result.self_loop_constraints[0].adr_id == "ADR-010"

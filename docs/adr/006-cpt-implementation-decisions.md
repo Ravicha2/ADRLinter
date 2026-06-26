@@ -18,7 +18,7 @@ CPT operates in four steps:
 
 1. **Changed FQN**: Commit diff identifies entry points into the ADG.
 2. **K-hop BFS**: Traverse structural edges (CONTAINS, CALLS, IMPORTS, INHERITS) both outward and inward from changed FQNs, up to k hops (default 3, tunable). Result: neighborhood `set[FQN]` + reachable `set[Edge]`.
-3. **Constraint retrieval via neighborhood matching**: For each FQN in the k-hop neighborhood, check against constraint subject/object patterns using `fqn_matches_pattern`. Any constraint where subject or object matches something in the neighborhood is retrieved as relevant.
+3. __Constraint retrieval via neighborhood matching__: For each FQN in the k-hop neighborhood, check against constraint subject/object patterns using `fqn_matches_pattern`. Any constraint where subject or object matches something in the neighborhood is retrieved as relevant.
 4. **Resolution**: For each retrieved constraint, check the predicate against structural facts from step 2 to determine pass/violation. Basic resolution handles specificity conflicts and deduplication.
 
 ### 2. Traversal: both directions, 3-hop limit
@@ -30,6 +30,7 @@ Both outward (changed FQN's actions) and inward (change's impact on dependents).
 Direction: FQN-first. Given a concrete FQN and a pattern string, return `MatchStatus`.
 
 Matching layers (in order):
+
 1. **Exact**: string equality
 2. **Wildcard**: pattern like `app.api.*`, FQN is a child (standard prefix match)
 3. **Segment (concrete)**: Jaccard overlap on dot-split segments, both non-wildcard, threshold >= 0.9
@@ -52,6 +53,10 @@ Jaccard uses multisets (Counter), not sets, to preserve duplicate segments.
 - WILDCARD: `depth(subject)`
 - SEGMENT: `depth(subject) + jaccard_score`
 - ORPHAN: 0.0
+
+---
+SEGMENT MATCHING SECTION SUPERCEDED BY [ADR7](./007-naming-resolution-layer.md)
+---
 
 ### 7. Segment threshold
 
@@ -78,9 +83,9 @@ class CPTResult:
 
 ### 9. Basic resolution
 
-**Specificity conflict**: when PROHIBITS_DEPENDENCY vs REQUIRES_DEPENDENCY or PROHIBITS_IMPLEMENTATION vs REQUIRES_IMPLEMENTATION target the same object, higher specificity wins.
+__Specificity conflict__: when PROHIBITS_DEPENDENCY vs REQUIRES_DEPENDENCY or PROHIBITS_IMPLEMENTATION vs REQUIRES_IMPLEMENTATION target the same object, higher specificity wins.
 
-**Deduplication**: one violation per unique (constraint, matched_fqn) pair.
+__Deduplication__: one violation per unique (constraint, matched_fqn) pair.
 
 ### 10. Orphan handling
 

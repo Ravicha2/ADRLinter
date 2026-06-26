@@ -357,7 +357,7 @@ class TestNonPythonFiles:
         assert result.changed_fqns == []
 
     def test_mixed_py_and_non_py(self) -> None:
-        """A commit with both .py and non-.py files: .py produces FQNs, non-.py does not."""
+        """A commit with both .py and non-.py files: .py with no defs emits a module-level FQN, non-.py does not."""
         commit_diff = CommitDiff(
             commit_sha="abc123",
             parent_sha="abc122",
@@ -369,8 +369,93 @@ class TestNonPythonFiles:
             parent_contents={"README.md": b"old\n"},
         )
         result = process_diff(commit_diff)
-        assert len(result.changed_fqns) == 0  # config.py has no definitions
+        # config.py has no class/def, but a module-level FQN is emitted so BFS still has a start.
+        config_mod = _find_changed(result, "app.config")
+        assert config_mod is not None
+        assert config_mod.change_type == "added"
+        assert config_mod.enclosing_module == FQN.from_dotted("app.config")
+        # non-.py file still produces no FQN
+        assert _find_changed(result, "README") is None
         assert len(result.changed_files) == 2
+
+
+# ===========================================================================
+# 7b. Module-level fallback (no class/def in file)
+# ===========================================================================
+
+
+class TestModuleLevelFallback:
+    """When a .py file changes bytes but has no class/def, emit a module-level ChangedFQN."""
+
+    def test_modified_module_level_only(self) -> None:
+        """A settings.py with only module-level assignments: modified bytes -> module FQN."""
+        old = b"DEBUG = True\nSECRET_KEY = 'dev'\n"
+        new = b"DEBUG = False\nSECRET_KEY = 'prod'\n"
+        commit_diff = CommitDiff(
+            commit_sha="abc123",
+            parent_sha="abc122",
+            changed_files=[FileChange(path="app/settings.py", status="modified")],
+            file_contents={"app/settings.py": new},
+            parent_contents={"app/settings.py": old},
+        )
+        result = process_diff(commit_diff)
+        mod = _find_changed(result, "app.settings")
+        assert mod is not None
+        assert mod.change_type == "modified"
+        assert mod.enclosing_module == FQN.from_dotted("app.settings")
+
+    def test_added_module_level_only(self) -> None:
+        """A new .py file with only module-level assignments emits an added module FQN."""
+        commit_diff = CommitDiff(
+            commit_sha="abc123",
+            parent_sha="abc122",
+            changed_files=[FileChange(path="app/settings.py", status="added")],
+            file_contents={"app/settings.py": CONFIG_PY},
+            parent_contents={},
+        )
+        result = process_diff(commit_diff)
+        mod = _find_changed(result, "app.settings")
+        assert mod is not None
+        assert mod.change_type == "added"
+
+    def test_deleted_module_level_only(self) -> None:
+        """A deleted .py file with only module-level assignments emits a deleted module FQN."""
+        commit_diff = CommitDiff(
+            commit_sha="abc123",
+            parent_sha="abc122",
+            changed_files=[FileChange(path="app/settings.py", status="deleted")],
+            file_contents={},
+            parent_contents={"app/settings.py": CONFIG_PY},
+        )
+        result = process_diff(commit_diff)
+        mod = _find_changed(result, "app.settings")
+        assert mod is not None
+        assert mod.change_type == "deleted"
+
+    def test_unchanged_bytes_no_module_fqn(self) -> None:
+        """A modified .py file whose bytes are identical emits no module FQN."""
+        commit_diff = CommitDiff(
+            commit_sha="abc123",
+            parent_sha="abc122",
+            changed_files=[FileChange(path="app/settings.py", status="modified")],
+            file_contents={"app/settings.py": CONFIG_PY},
+            parent_contents={"app/settings.py": CONFIG_PY},
+        )
+        result = process_diff(commit_diff)
+        assert _find_changed(result, "app.settings") is None
+
+    def test_def_present_no_module_fqn(self) -> None:
+        """A modified .py file with a changed def emits only the def FQN, not the module."""
+        commit_diff = CommitDiff(
+            commit_sha="abc123",
+            parent_sha="abc122",
+            changed_files=[FileChange(path="app/services/user_service.py", status="modified")],
+            file_contents={"app/services/user_service.py": USER_SERVICE_MODIFIED},
+            parent_contents={"app/services/user_service.py": USER_SERVICE_OLD},
+        )
+        result = process_diff(commit_diff)
+        assert _find_changed(result, "app.services.user_service") is None
+        assert _find_changed(result, "app.services.user_service.get_user") is not None
 
 
 # ===========================================================================

@@ -4,13 +4,14 @@ Date: 2026-06-17
 
 ## Status
 
-Accepted
+superceded by [ADR8](./008-symbolic-constraint-resolution.md)
 
 ## Context
 
 E2E testing of CPT detection against a Flask repo revealed that ADR constraint extraction (via langextract) produces FQN patterns that don't match the ADG's structural nodes. Example: ADR says `app.api.*` but the codebase uses `app.routes`. The current matching layer (exact, wildcard, segment Jaccard) cannot bridge this gap, resulting in orphan constraints.
 
 This is a two-part problem:
+
 1. **Lexical substitution**: same-depth synonyms (`api` vs `routes`)
 2. **Hierarchy errors**: LLM extracts wrong depth (`app.api` vs `app.auth.middleware`)
 
@@ -27,6 +28,7 @@ The naming resolution step runs after orphan identification but before EXTERNAL 
 Walk pattern segments against ADG nodes until the first mismatch. Collect all descendants of the longest matching prefix as candidates. If no segments match, candidates are the entire repo graph (bounded by repo size).
 
 For `app.api.*` against a graph with `app.routes`, `app.models`, `app.services`:
+
 - `app` matches → `api` doesn't → longest prefix is `app`
 - Candidates: all nodes under `app.*`
 
@@ -72,7 +74,7 @@ The LLM resolution layer supersedes the segment matching approach in `app/servic
 
 1. **EXACT**: string equality
 2. **WILDCARD**: prefix match on `.*` patterns
-3. **NO_MATCH**: nothing matched
+3. __NO_MATCH__: nothing matched
 
 `MatchStatus.SEGMENT` is removed from the enum. The segment case in `compute_specificity` is removed. Specificity simplifies to:
 

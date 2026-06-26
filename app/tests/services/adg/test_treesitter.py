@@ -256,6 +256,37 @@ class TestImportsEdges:
                 f"stdlib import target should be skipped: {target}"
             )
 
+    def test_relative_import_single_dot(self, tmp_path: Path) -> None:
+        """'from .models import X' in pkg.module resolves to pkg.models.X."""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("")
+        (pkg / "models.py").write_text("class X:\n    pass\n")
+        (pkg / "module.py").write_text("from .models import X\n")
+        adg = parse_repo(tmp_path)
+        assert _find_edge(adg, "pkg.module", "pkg.models.X", "IMPORTS") is not None
+
+    def test_relative_import_double_dot(self, tmp_path: Path) -> None:
+        """'from ..utils import X' in pkg.sub.module resolves to pkg.utils.X."""
+        pkg = tmp_path / "pkg"
+        sub = pkg / "sub"
+        sub.mkdir(parents=True)
+        (pkg / "__init__.py").write_text("")
+        (sub / "__init__.py").write_text("")
+        (pkg / "utils.py").write_text("class X:\n    pass\n")
+        (sub / "module.py").write_text("from ..utils import X\n")
+        adg = parse_repo(tmp_path)
+        assert _find_edge(adg, "pkg.sub.module", "pkg.utils.X", "IMPORTS") is not None
+
+    def test_relative_import_bare_dot(self, tmp_path: Path) -> None:
+        """'from . import X' in pkg.module resolves to pkg.X."""
+        pkg = tmp_path / "pkg"
+        pkg.mkdir()
+        (pkg / "__init__.py").write_text("class X:\n    pass\n")
+        (pkg / "module.py").write_text("from . import X\n")
+        adg = parse_repo(tmp_path)
+        assert _find_edge(adg, "pkg.module", "pkg.X", "IMPORTS") is not None
+
 
 # ===========================================================================
 # 5. CALLS edges

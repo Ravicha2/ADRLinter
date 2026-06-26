@@ -1,15 +1,23 @@
-"""Merge Layer: unify Track A (AST) ADG with Track B (ADR constraint edges)."""
+"""Merge Layer: unify Track A (AST) ADG with Track B (ADR symbolic constraints).
 
+Delegates symbolic resolution to symbolic_resolver, then merges the resulting
+ConstraintEdges into the ADG.
+"""
 from __future__ import annotations
 
 import logging
 
 from services.fqn import FQN
-from services.models import ADG, ConstraintEdge, FQNKind, FQNNode
-from services.matching import MatchResult, MatchStatus, compute_specificity, match_fqn
-from dataclasses import dataclass
+from services.models import (
+    ADG,
+    FQNKind,
+    FQNNode,
+    SymbolicConstraint,
+)
+from services.adg.symbolic_resolver import resolve_symbolic_constraints
 
 log = logging.getLogger(__name__)
+
 
 def add_external_nodes(adg: ADG) -> ADG:
     """Create EXTERNAL nodes for import targets not defined in the repo"""
@@ -34,54 +42,30 @@ def add_external_nodes(adg: ADG) -> ADG:
 
     return ADG(nodes=adg.nodes + external_nodes, edges=adg.edges, constraint_edges=adg.constraint_edges)
 
-def merge_constraints(adg: ADG, constraints: list[ConstraintEdge]) -> ADG:
+
+def merge_constraints(adg: ADG, constraints: list[SymbolicConstraint]) -> ADG:
+    """Unify Track A ADG + Track B symbolic constraints into a merged ADG.
+
+    Resolves SymbolicConstraints against ADG nodes, produces ConstraintEdges,
+    and adds them to the ADG along with any needed EXTERNAL nodes.
     """
-    Unify Track A ADG + Track B constraint edges into a merged ADG.
+    log.info("merge_constraints: merging %d symbolic constraints into ADG with %d nodes", len(constraints), len(adg.nodes))
 
-    For each constraints
-    1. Match subject against known FQN nodes
-    2. Compute specificity
-    3. Create EXTERNAL nodes for orphan referenconstraint_edges
-    """
-    log.info("merge_constraints: merging %d constraint edges into ADG with %d nodes", len(constraints), len(adg.nodes))
-    adg = add_external_nodes(adg)
+    resolved = resolve_symbolic_constraints(constraints, adg)
 
-    enriched_constraint_edges: list[ConstraintEdge] = []
-    orphan_fqns: set[str] = set()
+    constraint_edges = [rc.constraint_edge for rc in resolved]
 
-    for constraint_edge in constraints:
-        subject_match = match_fqn(constraint_edge.subject, adg.nodes)
-        subject_specificity = compute_specificity(constraint_edge, subject_match.status)
+    # Collect all FQNs from the ADG nodes (including EXTERNAL nodes added
+    # during resolution)
+    all_adg_nodes = set()
+    for rc in resolved:
+        all_adg_nodes.add(rc.constraint_edge.subject)
+        all_adg_nodes.add(rc.constraint_edge.object)
 
-        object_match = match_fqn(constraint_edge.object, adg.nodes)
+    known_fqns = {str(n.fqn) for n in adg.nodes}
 
-        log.info(
-            "merge_constraints: [%s] subject='%s' (%s, spec=%.1f) -> object='%s' (%s)",
-            constraint_edge.adr_id, constraint_edge.subject, subject_match.status.value,
-            subject_specificity, constraint_edge.object, object_match.status.value,
-        )
-
-        if subject_match.status == MatchStatus.NO_MATCH:
-            orphan_fqns.add(constraint_edge.subject)
-        if object_match.status == MatchStatus.NO_MATCH:
-            orphan_fqns.add(constraint_edge.object)
-
-        enriched_constraint_edges.append(ConstraintEdge(
-              subject=constraint_edge.subject,
-              predicate=constraint_edge.predicate,
-              object=constraint_edge.object,
-              justification=constraint_edge.justification,
-              adr_id=constraint_edge.adr_id,
-              adr_path=constraint_edge.adr_path,
-              char_interval=constraint_edge.char_interval,
-              specificity=subject_specificity,
-          ))
-
-    if orphan_fqns:
-        log.warning("merge_constraints: %d orphan FQNs (no AST node): %s", len(orphan_fqns), sorted(orphan_fqns))
-    else:
-        log.info("merge_constraints: all constraint FQNs resolved, no orphans")
-
+    # Add EXTERNAL nodes for any remaining orphans
+    orphan_fqns = sorted(all_adg_nodes - known_fqns)
     external_nodes = [
         FQNNode(
             fqn=FQN.from_dotted(fqn),
@@ -90,14 +74,13 @@ def merge_constraints(adg: ADG, constraints: list[ConstraintEdge]) -> ADG:
             line_start=-1,
             line_end=-1,
         )
-        for fqn in sorted(orphan_fqns) if not any(str(node.fqn) == fqn for node in adg.nodes)
+        for fqn in orphan_fqns
     ]
-
     if external_nodes:
-        log.info("merge_constraints: adding %d EXTERNAL nodes for orphans: %s", len(external_nodes), [str(n.fqn) for n in external_nodes])
+        log.info("merge_constraints: adding %d EXTERNAL nodes for orphans: %s", len(external_nodes), orphan_fqns)
 
     return ADG(
         nodes=adg.nodes + external_nodes,
         edges=adg.edges,
-        constraint_edges=adg.constraint_edges + enriched_constraint_edges
+        constraint_edges=adg.constraint_edges + constraint_edges,
     )

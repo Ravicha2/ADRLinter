@@ -7,6 +7,7 @@ import tree_sitter_python as tspython
 from tree_sitter import Language, Parser
 from services.fqn import FQN
 from services.models import ADG, Edge, FQNKind, FQNNode
+from services.resolver import NameResolver
 
 PY_LANGUAGE = Language(tspython.language())
 
@@ -60,6 +61,50 @@ def walk_definitions(node, parent_fqn: FQN, parent_kind: str, rel_path: str, nod
             walk_definitions(child, parent_fqn, parent_kind, rel_path, nodes, edges)
 
 
+def _resolve_relative_base(module_fqn: FQN, module_name: str) -> FQN | None:
+    """Resolve the package FQN referenced by a (possibly relative) module_name.
+
+    Handles PEP 328 relative imports: leading dots in module_name count levels
+    above the current package. Returns None if the reference climbs above the
+    root or yields an empty FQN.
+    """
+    level = len(module_name) - len(module_name.lstrip("."))
+    rest = module_name.lstrip(".")
+    parts = list(module_fqn.parts[:-1])  # current package (drop module file name)
+    if level > 1:
+        drop = level - 1
+        if drop >= len(parts):
+            return None
+        parts = parts[:-drop]
+    if rest:
+        parts.extend(rest.split("."))
+    if not parts:
+        return None
+    return FQN.from_dotted_safe(".".join(parts))
+
+
+def _record_import(
+    module_fqn: FQN, module_name: str, imported: str,
+    known_fqns: set[FQN], edges: list[Edge],
+) -> None:
+    """Add an IMPORTS edge for `module_name.imported` if known, else fall back
+    to the module itself if known. Handles relative imports.
+    """
+    if module_name.startswith("."):
+        base = _resolve_relative_base(module_fqn, module_name)
+        if base is None:
+            return
+        target_fqn = base.child(imported) if imported else base
+        module_fqn_target = base
+    else:
+        target_fqn = FQN.from_dotted_safe(f"{module_name}.{imported}")
+        module_fqn_target = FQN.from_dotted_safe(module_name)
+    if target_fqn is not None and target_fqn in known_fqns:
+        edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
+    elif module_fqn_target is not None and module_fqn_target in known_fqns:
+        edges.append(Edge(source=str(module_fqn), target=str(module_fqn_target), kind="IMPORTS"))
+
+
 def walk_imports(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge]):
     """Recursively walk AST to extract IMPORTS edges from import/from..import statements."""
 
@@ -71,32 +116,24 @@ def walk_imports(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge])
             for child in node.children:
                 if child.type == "dotted_name" and child != module_node:
                     imported = child.text.decode("utf-8")
-                    target_fqn = FQN.from_dotted(f"{module_name}.{imported}")
-                    if target_fqn in known_fqns:
-                        edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
-                    elif FQN.from_dotted_safe(module_name) in known_fqns:
-                        edges.append(Edge(source=str(module_fqn), target=module_name, kind="IMPORTS"))
+                    _record_import(module_fqn, module_name, imported, known_fqns, edges)
 
                 elif child.type == "import_list":
                     for name_node in child.children:
                         if name_node.type == "dotted_name":
                             imported = name_node.text.decode("utf-8")
-                            target_fqn = FQN.from_dotted(f"{module_name}.{imported}")
-                            if target_fqn in known_fqns:
-                                edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
-                            elif FQN.from_dotted_safe(module_name) in known_fqns:
-                                edges.append(Edge(source=str(module_fqn), target=module_name, kind="IMPORTS"))
+                            _record_import(module_fqn, module_name, imported, known_fqns, edges)
                         elif name_node.type == "aliased_import":
                             real_name = name_node.child_by_field_name("name")
                             if real_name is not None:
                                 imported = real_name.text.decode("utf-8")
-                                target_fqn = FQN.from_dotted(f"{module_name}.{imported}")
-                                if target_fqn in known_fqns:
-                                    edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
-                                elif FQN.from_dotted_safe(module_name) in known_fqns:
-                                    edges.append(Edge(source=str(module_fqn), target=module_name, kind="IMPORTS"))
+                                _record_import(module_fqn, module_name, imported, known_fqns, edges)
                         elif name_node.type == "wildcard_import":
-                            if FQN.from_dotted_safe(module_name) in known_fqns:
+                            if module_name.startswith("."):
+                                base = _resolve_relative_base(module_fqn, module_name)
+                                if base is not None and base in known_fqns:
+                                    edges.append(Edge(source=str(module_fqn), target=str(base), kind="IMPORTS"))
+                            elif FQN.from_dotted_safe(module_name) in known_fqns:
                                 edges.append(Edge(source=str(module_fqn), target=module_name, kind="IMPORTS"))
         return
 
@@ -118,13 +155,13 @@ def walk_imports(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge])
     for child in node.children:
         walk_imports(child, module_fqn, known_fqns, edges)
 
-def walk_calls(node, caller_fqn: FQN, known_fqns: set[FQN], edges: list[Edge]):
+def walk_calls(node, caller_fqn: FQN, resolver: NameResolver, edges: list[Edge]):
     """Recursively walk AST to extract CALLS edges from function call expressions."""
     if node.type == "call":
         callee_node = node.child(0)
         if callee_node is not None:
             callee_text = callee_node.text.decode("utf-8")
-            resolved = resolve_call(callee_text, caller_fqn, known_fqns)
+            resolved = resolver.resolve(callee_text)
             if resolved is not None:
                 edges.append(Edge(source=str(caller_fqn), target=str(resolved), kind="CALLS"))
 
@@ -133,22 +170,15 @@ def walk_calls(node, caller_fqn: FQN, known_fqns: set[FQN], edges: list[Edge]):
         if name_node is not None:
             func_name = name_node.text.decode("utf-8")
             inner_fqn = caller_fqn.child(func_name)
-            if inner_fqn in known_fqns:
+            if inner_fqn in resolver:
                 caller_fqn = inner_fqn
 
     for child in node.children:
-        walk_calls(child, caller_fqn, known_fqns, edges)
+        walk_calls(child, caller_fqn, resolver, edges)
 
 
-def resolve_call(callee_text: str, caller_fqn: FQN, known_fqns: set[FQN]) -> FQN | None:
-    """resolve a callee expression to a known FQN."""
-    for fqn in known_fqns:
-        fqn_str = str(fqn)
-        if fqn_str.endswith(f".{callee_text}") or fqn_str == callee_text:
-            return fqn
-    return None
 
-def walk_inherits(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge]):
+def walk_inherits(node, module_fqn: FQN, resolver: NameResolver, edges: list[Edge]):
     """Recursively walk AST to extract INHERITS edges from class definitions."""
     if node.type == "class_definition":
         name_node = node.child_by_field_name("name")
@@ -162,28 +192,21 @@ def walk_inherits(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge]
             for child in superclasses.children:
                 if child.type in ("identifier", "attribute", "dotted_name"):
                     base_text = child.text.decode("utf-8")
-                    resolved = resolve_base_class(base_text, known_fqns)
-                    if resolved is not None and class_fqn in known_fqns:
+                    resolved = resolver.resolve(base_text)
+                    if resolved is not None and class_fqn in resolver:
                         edges.append(Edge(source=str(class_fqn), target=str(resolved), kind="INHERITS"))
         # recurse into class body for nested classes
         for child in node.children:
-            walk_inherits(child, module_fqn, known_fqns, edges)
+            walk_inherits(child, module_fqn, resolver, edges)
 
     elif node.type == "decorated_definition":
         for child in node.children:
-            walk_inherits(child, module_fqn, known_fqns, edges)
+            walk_inherits(child, module_fqn, resolver, edges)
 
     else:
         for child in node.children:
-            walk_inherits(child, module_fqn, known_fqns, edges)
+            walk_inherits(child, module_fqn, resolver, edges)
 
-def resolve_base_class(base_text: str, known_fqns: set[FQN]) -> FQN | None:
-    """Resolve a base class reference to a known FQN"""
-    for fqn in known_fqns:
-        fqn_str = str(fqn)
-        if fqn_str == base_text or fqn_str.endswith(f".{base_text}"):
-            return fqn
-    return None
 
 def parse_file(source: bytes, module_fqn: FQN, rel_path: str) -> tuple[list[FQNNode], list[Edge]]:
     """Parse a single .py file and extract FQN definition nodes and CONTAINS edges."""
@@ -206,6 +229,15 @@ def _has_error(node) -> bool:
     return node.has_error
 
 
+def _is_test_file(path: Path, repo_root: Path) -> bool:
+    """Skip test files: paths under a tests/ dir, or files named test_*.py / *_test.py."""
+    parts = path.relative_to(repo_root).parts
+    if any(part in ("tests", "test") for part in parts[:-1]):
+        return True
+    name = path.name
+    return name.startswith("test_") or name.endswith("_test.py")
+
+
 
 def parse_repo(repo_path: Path) -> ADG:
     """
@@ -214,7 +246,10 @@ def parse_repo(repo_path: Path) -> ADG:
     nodes: list[FQNNode] = []
     edges: list[Edge] = []
 
-    py_files = sorted(repo_path.rglob("*.py"))
+    py_files = sorted(
+        p for p in repo_path.rglob("*.py")
+        if not _is_test_file(p, repo_path)
+    )
     parser = Parser(PY_LANGUAGE)
 
     # Pass 1: read sources + create module nodes
@@ -243,6 +278,7 @@ def parse_repo(repo_path: Path) -> ADG:
         edges.extend(file_edges)
 
     known_fqns = {n.fqn for n in nodes}
+    resolver = NameResolver(known_fqns)
 
     # Pass 3: resolve IMPORTS, CALLS, INHERITS edges
     for fqn, source in file_sources.items():
@@ -250,8 +286,8 @@ def parse_repo(repo_path: Path) -> ADG:
         root = tree.root_node
 
         walk_imports(root, fqn, known_fqns, edges)
-        walk_calls(root, fqn, known_fqns, edges)
-        walk_inherits(root, fqn, known_fqns, edges)
+        walk_calls(root, fqn, resolver, edges)
+        walk_inherits(root, fqn, resolver, edges)
 
     return ADG(nodes=nodes, edges=edges)
 

@@ -340,11 +340,12 @@ class TestJudgeEvaluation:
         return json.dumps(
             [
                 {
-                    "subject": c.subject,
+                    "subject_role_general": c.subject_role_general,
+                    "subject_role_specific": c.subject_role_specific,
                     "predicate": c.predicate.value,
-                    "object": c.object,
+                    "object_role_general": c.object_role_general,
+                    "object_role_specific": c.object_role_specific,
                     "justification": c.justification,
-                    "char_interval": list(c.char_interval) if c.char_interval is not None else None,
                 }
                 for c in constraints
             ],
@@ -410,9 +411,6 @@ class TestJudgeEvaluation:
         assert len(extraction.constraints) >= 1, f"{adr_label} produced no constraints"
 
         for c in extraction.constraints:
-            if c.char_interval is not None:
-                assert c.char_interval[0] >= 0
-                assert c.char_interval[1] > c.char_interval[0]
             assert c.justification
 
         constraints_json = self._serialize_constraints(extraction.constraints)
@@ -484,8 +482,8 @@ class TestDeterminism:
         the decision log). If it fails, it indicates non-determinism in
         the LLM provider, not a bug in the extraction module.
         """
-        first_subjects = {c.subject for c in first_result.constraints}
-        second_subjects = {c.subject for c in second_result.constraints}
+        first_subjects = {c.subject_role_general for c in first_result.constraints}
+        second_subjects = {c.subject_role_general for c in second_result.constraints}
         assert first_subjects == second_subjects, (
             f"Non-deterministic extraction: {first_subjects} != {second_subjects}"
         )

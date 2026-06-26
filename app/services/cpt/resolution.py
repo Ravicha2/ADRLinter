@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from services.fqn import FQN
-from services.matching import MatchStatus
+from services.resolver import MatchStatus
 from services.models import ConstraintEdge
 
 

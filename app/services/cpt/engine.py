@@ -1,20 +1,24 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 
 from services.fqn import FQN
 from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, PredicateType
 from services.cpt.resolution import Violation, resolve, suppress_outweighed_prohibits
-from services.matching import MatchStatus, fqn_matches_pattern
+from services.resolver import MatchStatus, fqn_matches_pattern
 from collections import deque, defaultdict
 
-_PRIORITY = {MatchStatus.EXACT: 3, MatchStatus.WILDCARD: 2, MatchStatus.SEGMENT: 1}
+log = logging.getLogger(__name__)
+
+_PRIORITY = {MatchStatus.EXACT: 3, MatchStatus.WILDCARD: 2}
 
 
 @dataclass
 class CPTResult:
     violations: list[Violation] = field(default_factory=list)
     orphans: list[ConstraintEdge] = field(default_factory=list)
+    self_loop_constraints: list[ConstraintEdge] = field(default_factory=list)
     neighborhood: set[FQN] = field(default_factory=set)
 
 
@@ -187,7 +191,22 @@ def check_change_triggered_predicates(
 def detect(diff_result: DiffResult, adg: ADG, k: int = 3) -> CPTResult:
     neighborhood, reachable = bfs_neighborhood(adg, diff_result.changed_fqns, k)
     adjacency = _build_adjacency(reachable)
-    matched = match_constraints(neighborhood, adg)
+
+    # filter self-loop constraints (subject == object), surface as informational
+    self_loop_constraints: list[ConstraintEdge] = [
+        c for c in adg.constraint_edges if c.subject == c.object
+    ]
+
+    if self_loop_constraints:
+        log.warning(
+            "detect: %d self-loop constraint(s) filtered: %s",
+            len(self_loop_constraints),
+            [(c.adr_id, c.subject) for c in self_loop_constraints],
+        )
+
+    safe_edges = [c for c in adg.constraint_edges if c.subject != c.object]
+    safe_adg = ADG(nodes=adg.nodes, edges=adg.edges, constraint_edges=safe_edges)
+    matched = match_constraints(neighborhood, safe_adg)
 
     all_violations: list[Violation] = []
     all_violations.extend(check_structural_predicates(matched, adjacency))
@@ -205,7 +224,7 @@ def detect(diff_result: DiffResult, adg: ADG, k: int = 3) -> CPTResult:
         c for c in adg.constraint_edges if id(c) not in matched
     ]
 
-    return CPTResult(violations=violations, orphans=orphans, neighborhood=neighborhood)
+    return CPTResult(violations=violations, orphans=orphans, self_loop_constraints=self_loop_constraints, neighborhood=neighborhood)
 
 
 if __name__ == "__main__":

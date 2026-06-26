@@ -19,17 +19,55 @@ from services.extract.io import parse_adr_id
 from services.extract.logging import ADRLogEntry, write_log
 from services.extract.prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
 from services.models import (
-    ConstraintEdge,
     ExtractionError,
     ExtractionResult,
     PredicateType,
+    SymbolicConstraint,
 )
 
 
+def derive_package_context(adg: "ADG") -> list[str]:  # noqa: F821
+    """Return all top-level module packages from the ADG, excluding 'tests'.
+
+    The LLM uses this list to pick role_general values instead of inventing
+    FQN strings. Every top-level module is included so both subject and object
+    general roles have a bounded vocabulary to draw from.
+    """
+    if not adg.nodes:
+        return []
+    top_modules: set[str] = set()
+    for n in adg.nodes:
+        parts = n.fqn.parts
+        if not parts:
+            continue
+        top = parts[0]
+        if top == "tests":
+            continue
+        top_modules.add(top)
+    return sorted(top_modules)
+
+
 class ADRExtractor:
-    def __init__(self, config: LangExtractConfig, log_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        config: LangExtractConfig,
+        log_path: Path | None = None,
+        package_context: list[str] | None = None,
+    ) -> None:
         self.config = config
         self.log_path = log_path
+        self.package_context = package_context
+
+    def _build_prompt(self) -> str:
+        if not self.package_context:
+            return PROMPT_DESCRIPTION
+        packages = ", ".join(self.package_context)
+        return (
+            PROMPT_DESCRIPTION
+            + "\nCodebase packages (use these as role_general values):\n"
+            + packages
+            + "\n"
+        )
 
     def extract_constraints(
         self, adr_text: str, adr_id: str, adr_path: str
@@ -51,7 +89,7 @@ class ADRExtractor:
             )
             result = lx.extract(
                 text_or_documents=adr_text,
-                prompt_description=PROMPT_DESCRIPTION,
+                prompt_description=self._build_prompt(),
                 examples=FEW_SHOT_EXAMPLES,
                 config=model_config,
                 prompt_validation_level=lx.prompt_validation.PromptValidationLevel.OFF,
@@ -63,10 +101,6 @@ class ADRExtractor:
                             "extraction_text": e.extraction_text,
                             "extraction_class": e.extraction_class,
                             "attributes": e.attributes,
-                            "char_interval": (
-                                (e.char_interval.start_pos, e.char_interval.end_pos)
-                                if e.char_interval else None
-                            ),
                         }
                         for e in result.extractions
                     ]
@@ -84,7 +118,7 @@ class ADRExtractor:
         finally:
             duration_ms = (time.perf_counter() - start) * 1000
 
-        constraints: list[ConstraintEdge] = []
+        constraints: list[SymbolicConstraint] = []
         errors: list[ExtractionError] = []
         parsed_predicate_count = 0
 
@@ -106,24 +140,22 @@ class ADRExtractor:
                 ))
                 continue
 
-            char_interval = None
-            if ext.char_interval is not None:
-                char_interval = (ext.char_interval.start_pos, ext.char_interval.end_pos)
-
             try:
-                edge = ConstraintEdge(
-                    subject=attrs.get("subject", ""),
+                sc = SymbolicConstraint(
+                    subject_role_general=attrs.get("subject_role_general", ""),
+                    subject_role_specific=attrs.get("subject_role_specific", ""),
                     predicate=predicate,
-                    object=attrs.get("object", ""),
+                    object_role_general=attrs.get("object_role_general", ""),
+                    object_role_specific=attrs.get("object_role_specific", ""),
                     justification=attrs.get("justification", ""),
-                    char_interval=char_interval,
+                    extraction_text=ext.extraction_text or "",
                     adr_id=adr_id,
                     adr_path=adr_path,
                 )
-                constraints.append(edge)
+                constraints.append(sc)
                 log.info(
                     "extract_constraints: parsed constraint [%s] '%s' -[%s]-> '%s'",
-                    adr_id, edge.subject, edge.predicate.value, edge.object,
+                    adr_id, sc.subject_role_general, sc.predicate.value, sc.object_role_general,
                 )
             except ValueError as exc:
                 log.error("extract_constraints: malformed extraction for %s: %s", adr_id, exc)
