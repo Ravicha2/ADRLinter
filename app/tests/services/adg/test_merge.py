@@ -21,12 +21,8 @@ from services.models import (
     ResolvedConstraint,
     SymbolicConstraint,
 )
-from services.resolver import MatchStatus, NameResolver
-from services.adg.merge import (
-    add_external_nodes,
-    merge_constraints,
-    resolve_symbolic_constraints,
-)
+from services.adg.merge import add_external_nodes, merge_constraints
+from services.adg.symbolic_resolver import resolve_symbolic_constraints
 
 
 # ===========================================================================
