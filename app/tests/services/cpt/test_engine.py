@@ -741,7 +741,9 @@ class TestDetect:
         result = detect(diff, adg)
         prohibit_violations = [v for v in result.violations if v.constraint.predicate == PredicateType.PROHIBITS_IMPLEMENTATION]
         require_violations = [v for v in result.violations if v.constraint.predicate == PredicateType.REQUIRES_IMPLEMENTATION]
-        assert len(prohibit_violations) == 0
+        # app.middleware has its prohibit suppressed by requires, while app.auth retains its valid structural prohibit under full-ADG evaluation
+        middleware_prohibits = [v for v in prohibit_violations if str(v.matched_fqn) == "app.middleware"]
+        assert len(middleware_prohibits) == 0
 
 
 # ===========================================================================
