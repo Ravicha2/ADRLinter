@@ -220,6 +220,17 @@ class TestMatchConstraints:
 class TestCheckStructuralPredicates:
     """PROHIBITS_* constraints evaluated without changed_fqn."""
 
+    def test_reachable_nodes(self) -> None:
+        from services.cpt.engine import _reachable_nodes, _build_adjacency
+        from services.models import Edge
+
+        adjacency = _build_adjacency({
+            Edge(source="app.api.users", target="app.auth.middleware", kind="IMPORTS"),
+            Edge(source="app.auth.middleware", target="app.models.user", kind="IMPORTS"),
+        })
+        reachable = _reachable_nodes("app.api.users", adjacency, {"IMPORTS"})
+        assert reachable == {"app.auth.middleware", "app.models.user"}
+
     def test_prohibits_dependency_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
         from services.resolver import MatchStatus

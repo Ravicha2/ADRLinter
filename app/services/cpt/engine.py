@@ -36,8 +36,8 @@ def _build_adjacency(edges: Iterable[Edge]) -> dict[str, list[Edge]]:
     return adjacency
 
 
-def _reachable(start: str, target: str, adjacency: dict[str, list[Edge]], kinds: set[str]) -> bool:
-    visited: set[str] = {start}
+def _reachable_nodes(start: str, adjacency: dict[str, list[Edge]], kinds: set[str]) -> set[str]:
+    visited: set[str] = set()
     queue: deque[str] = deque([start])
 
     while queue:
@@ -45,13 +45,15 @@ def _reachable(start: str, target: str, adjacency: dict[str, list[Edge]], kinds:
         for edge in adjacency.get(current, ()):
             if edge.kind not in kinds:
                 continue
-            if edge.target == target:
-                return True
             if edge.target not in visited:
                 visited.add(edge.target)
                 queue.append(edge.target)
 
-    return False
+    return visited
+
+
+def _reachable(start: str, target: str, adjacency: dict[str, list[Edge]], kinds: set[str]) -> bool:
+    return target in _reachable_nodes(start, adjacency, kinds)
 
 
 def match_constraints(adg: ADG) -> dict[int, MatchedConstraint]:
@@ -93,11 +95,12 @@ def check_structural_predicates(
         label = "has dependency path to" if pred == PredicateType.PROHIBITS_DEPENDENCY else "implements"
 
         for subject_fqn, subject_status in matched_constraint.subject_matches:
+            subject_str = str(subject_fqn)
+            reachable = _reachable_nodes(subject_str, adjacency, kinds)
             for object_fqn, object_status in matched_constraint.object_matches:
                 higher = subject_status if _PRIORITY[subject_status] >= _PRIORITY[object_status] else object_status
-                subject_str = str(subject_fqn)
                 object_str = str(object_fqn)
-                if _reachable(subject_str, object_str, adjacency, kinds):
+                if object_str in reachable:
                     violations.append(Violation(
                         constraint=matched_constraint.constraint,
                         changed_fqn=subject_fqn, 
