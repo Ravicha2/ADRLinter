@@ -101,8 +101,6 @@ def _record_import(
         module_fqn_target = FQN.from_dotted_safe(module_name)
     if target_fqn is not None and target_fqn in known_fqns:
         edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
-    elif module_fqn_target is not None and module_fqn_target in known_fqns:
-        edges.append(Edge(source=str(module_fqn), target=str(module_fqn_target), kind="IMPORTS"))
     elif module_fqn_target is not None:
         edges.append(Edge(source=str(module_fqn), target=str(module_fqn_target), kind="IMPORTS"))
 
