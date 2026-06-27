@@ -6,7 +6,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Mock neo4j before importing main, since it may not be installed in test env
-if "neo4j" not in sys.modules:
+try:
+    import neo4j
+except ImportError:
     sys.modules["neo4j"] = MagicMock()
 
 from fastapi.testclient import TestClient

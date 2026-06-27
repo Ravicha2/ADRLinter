@@ -93,3 +93,21 @@ def suppress_outweighed_prohibits(
             )
         )
     ]
+
+
+def suppress_outweighed_requires(
+    violations: list[Violation],
+    active_prohibits: list[ConstraintEdge],
+) -> list[Violation]:
+    """Remove requires violations outweighed by a higher-specificity or newer prohibits on the same object."""
+    return [
+        violation for violation in violations
+        if not (
+            violation.constraint.predicate.value.startswith("requires_")
+            and any(
+                prohibits.object == violation.constraint.object
+                and (prohibits.specificity > violation.constraint.specificity or (prohibits.specificity == violation.constraint.specificity and prohibits.adr_id > violation.constraint.adr_id))
+                for prohibits in active_prohibits
+            )
+        )
+    ]

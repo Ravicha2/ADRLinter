@@ -161,8 +161,13 @@ def augment_adg(adg: ADG, commit_diff: CommitDiff) -> None:
     Without this, BFS from added FQNs can't expand because those nodes
     don't exist in the base ADG.
     """
+    from tree_sitter import Parser
+    from services.adg.treesitter import PY_LANGUAGE, walk_imports, walk_calls, walk_inherits, parse_file
+    from services.resolver import NameResolver
+
     existing_fqns = {n.fqn for n in adg.nodes}
     existing_edges = {(e.source, e.target, e.kind) for e in adg.edges}
+    diff_sources: dict[FQN, bytes] = {}
 
     for file_change in commit_diff.changed_files:
         path = file_change.path
@@ -179,6 +184,34 @@ def augment_adg(adg: ADG, commit_diff: CommitDiff) -> None:
             continue
 
         module_fqn = FQN.from_path(path)
+        diff_sources[module_fqn] = source
+
+        # Ensure module_fqn and all parent packages exist in adg.nodes
+        from services.models import FQNNode, FQNKind, Edge
+        for i in range(1, len(module_fqn.parts) + 1):
+            parent_fqn = FQN.from_dotted_safe(".".join(module_fqn.parts[:i]))
+            if parent_fqn is not None and parent_fqn not in existing_fqns:
+                adg.nodes.append(FQNNode(
+                    fqn=parent_fqn,
+                    kind=FQNKind.MODULE,
+                    file_path=path if i == len(module_fqn.parts) else "",
+                    line_start=0,
+                    line_end=0,
+                    start_byte=0,
+                    end_byte=len(source) if i == len(module_fqn.parts) else 0,
+                ))
+                existing_fqns.add(parent_fqn)
+
+        # Ensure CONTAINS edges exist for the package hierarchy
+        for i in range(2, len(module_fqn.parts) + 1):
+            parent_fqn = FQN.from_dotted_safe(".".join(module_fqn.parts[:i-1]))
+            child_fqn = FQN.from_dotted_safe(".".join(module_fqn.parts[:i]))
+            if parent_fqn is not None and child_fqn is not None:
+                key = (str(parent_fqn), str(child_fqn), "CONTAINS")
+                if key not in existing_edges:
+                    adg.edges.append(Edge(source=str(parent_fqn), target=str(child_fqn), kind="CONTAINS"))
+                    existing_edges.add(key)
+
         new_nodes, new_edges = parse_file(source, module_fqn, path)
         for node in new_nodes:
             if node.fqn not in existing_fqns:
@@ -189,3 +222,32 @@ def augment_adg(adg: ADG, commit_diff: CommitDiff) -> None:
             if key not in existing_edges:
                 adg.edges.append(edge)
                 existing_edges.add(key)
+
+    # Pass 2: Extract IMPORTS, CALLS, and INHERITS edges for the diff files
+    parser = Parser(PY_LANGUAGE)
+    resolver = NameResolver(existing_fqns)
+    new_dep_edges: list[Edge] = []
+
+    for fqn, source in diff_sources.items():
+        tree = parser.parse(source)
+        root = tree.root_node
+        walk_imports(root, fqn, existing_fqns, new_dep_edges)
+        walk_calls(root, fqn, resolver, new_dep_edges)
+        walk_inherits(root, fqn, resolver, new_dep_edges)
+
+    for edge in new_dep_edges:
+        key = (edge.source, edge.target, edge.kind)
+        if key not in existing_edges:
+            adg.edges.append(edge)
+            existing_edges.add(key)
+            if edge.kind == "IMPORTS":
+                target_fqn = FQN.from_dotted_safe(edge.target)
+                if target_fqn is not None and target_fqn not in existing_fqns:
+                    adg.nodes.append(FQNNode(
+                        fqn=target_fqn,
+                        kind=FQNKind.EXTERNAL,
+                        file_path="",
+                        line_start=-1,
+                        line_end=-1,
+                    ))
+                    existing_fqns.add(target_fqn)

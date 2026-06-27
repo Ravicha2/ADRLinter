@@ -103,6 +103,8 @@ def _record_import(
         edges.append(Edge(source=str(module_fqn), target=str(target_fqn), kind="IMPORTS"))
     elif module_fqn_target is not None and module_fqn_target in known_fqns:
         edges.append(Edge(source=str(module_fqn), target=str(module_fqn_target), kind="IMPORTS"))
+    elif module_fqn_target is not None:
+        edges.append(Edge(source=str(module_fqn), target=str(module_fqn_target), kind="IMPORTS"))
 
 
 def walk_imports(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge]):
@@ -120,7 +122,7 @@ def walk_imports(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge])
 
                 elif child.type == "import_list":
                     for name_node in child.children:
-                        if name_node.type == "dotted_name":
+                        if name_node.type in ("dotted_name", "identifier"):
                             imported = name_node.text.decode("utf-8")
                             _record_import(module_fqn, module_name, imported, known_fqns, edges)
                         elif name_node.type == "aliased_import":
@@ -141,14 +143,12 @@ def walk_imports(node, module_fqn: FQN, known_fqns: set[FQN], edges: list[Edge])
         for child in node.children:
             if child.type == "dotted_name":
                 imported = child.text.decode("utf-8")
-                if FQN.from_dotted_safe(imported) in known_fqns:
-                    edges.append(Edge(source=str(module_fqn), target=imported, kind="IMPORTS"))
+                edges.append(Edge(source=str(module_fqn), target=imported, kind="IMPORTS"))
             elif child.type == "aliased_import":
                 real_name = child.child_by_field_name("name")
                 if real_name is not None:
                     imported = real_name.text.decode("utf-8")
-                    if FQN.from_dotted_safe(imported) in known_fqns:
-                        edges.append(Edge(source=str(module_fqn), target=imported, kind="IMPORTS"))
+                    edges.append(Edge(source=str(module_fqn), target=imported, kind="IMPORTS"))
         return
 
     # recurse into children for all other node types
@@ -278,6 +278,30 @@ def parse_repo(repo_path: Path) -> ADG:
         edges.extend(file_edges)
 
     known_fqns = {n.fqn for n in nodes}
+    module_fqns = list({n.fqn for n in nodes if n.kind == FQNKind.MODULE})
+
+    for mod_fqn in module_fqns:
+        for i in range(1, len(mod_fqn.parts)):
+            parent_fqn = FQN.from_dotted_safe(".".join(mod_fqn.parts[:i]))
+            if parent_fqn is not None and parent_fqn not in known_fqns:
+                nodes.append(FQNNode(
+                    fqn=parent_fqn,
+                    kind=FQNKind.MODULE,
+                    file_path="",
+                    line_start=0,
+                    line_end=0,
+                    start_byte=0,
+                    end_byte=0,
+                ))
+                known_fqns.add(parent_fqn)
+
+    module_fqns = {n.fqn for n in nodes if n.kind == FQNKind.MODULE}
+    for mod_fqn in module_fqns:
+        if len(mod_fqn.parts) > 1:
+            parent_fqn = FQN.from_dotted_safe(".".join(mod_fqn.parts[:-1]))
+            if parent_fqn in known_fqns:
+                edges.append(Edge(source=str(parent_fqn), target=str(mod_fqn), kind="CONTAINS"))
+
     resolver = NameResolver(known_fqns)
 
     # Pass 3: resolve IMPORTS, CALLS, INHERITS edges

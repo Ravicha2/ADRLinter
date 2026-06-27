@@ -51,6 +51,9 @@ def main() -> None:
     console.print("[bold]Loading ADG from Neo4j...[/]")
     adg = store.load_adg()
     console.print(f"  {len(adg.nodes)} nodes, {len(adg.edges)} edges, {len(adg.constraint_edges)} constraints")
+    for c in adg.constraint_edges:
+        if "0010" in c.adr_id or "0012" in c.adr_id:
+            console.print(f"  Constraint: {c.adr_id} | {c.subject} | {c.predicate.value} | {c.object}")
     store.close()
 
     for diff_path in sorted(DIFF_DIR.glob("*.json")):

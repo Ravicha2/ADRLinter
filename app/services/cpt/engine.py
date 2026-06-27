@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 from services.fqn import FQN
 from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, PredicateType
-from services.cpt.resolution import Violation, resolve, suppress_outweighed_prohibits
+from services.cpt.resolution import Violation, resolve, suppress_outweighed_prohibits, suppress_outweighed_requires
 from services.resolver import MatchStatus, fqn_matches_pattern
 from collections.abc import Iterable
 from collections import deque, defaultdict
@@ -87,7 +87,7 @@ def check_structural_predicates(
         if pred not in (PredicateType.PROHIBITS_DEPENDENCY, PredicateType.PROHIBITS_IMPLEMENTATION):
             continue
 
-        kinds = {"IMPORTS", "CALLS", "INHERITS"} if pred == PredicateType.PROHIBITS_DEPENDENCY else {"CONTAINS", "CALLS"}
+        kinds = {"CONTAINS", "IMPORTS", "CALLS", "INHERITS"} if pred == PredicateType.PROHIBITS_DEPENDENCY else {"CONTAINS", "CALLS"}
         label = "has dependency path to" if pred == PredicateType.PROHIBITS_DEPENDENCY else "implements"
 
         for subject_fqn, subject_status in matched_constraint.subject_matches:
@@ -96,7 +96,7 @@ def check_structural_predicates(
             for object_fqn, object_status in matched_constraint.object_matches:
                 higher = subject_status if _PRIORITY[subject_status] >= _PRIORITY[object_status] else object_status
                 object_str = str(object_fqn)
-                if object_str in reachable:
+                if any(r == object_str or r.startswith(object_str + ".") for r in reachable):
                     violations.append(Violation(
                         constraint=matched_constraint.constraint,
                         changed_fqn=subject_fqn, 
@@ -122,21 +122,37 @@ def check_change_triggered_predicates(
             if pred not in (PredicateType.REQUIRES_DEPENDENCY, PredicateType.REQUIRES_IMPLEMENTATION):
                 continue
 
-            relevant_subjects = [
-                (subject_fqn, subject_status) for subject_fqn, subject_status in matched_constraint.subject_matches
-                if subject_fqn == changed.fqn or changed_str.startswith(str(subject_fqn) + ".")
-            ]
+            if matched_constraint.constraint.subject.endswith(".*"):
+                prefix = matched_constraint.constraint.subject[:-2]
+                # Check if the changed FQN falls under this wildcard prefix
+                if not (changed_str == prefix or changed_str.startswith(prefix + ".")):
+                    continue
+                # BFS from the wildcard prefix (the package root).  This walks
+                # CONTAINS edges down through all child modules and follows
+                # their IMPORTS/CALLS, correctly answering "does this package
+                # subtree have the required dependency?"  Using individual
+                # ancestor subjects would cause false positives: function-level
+                # FQNs have no outgoing IMPORTS (imports are module-level in
+                # Python), so BFS from them always fails.
+                prefix_fqn = FQN.from_dotted_safe(prefix)
+                if prefix_fqn is None:
+                    continue
+                relevant_subjects = [(prefix_fqn, MatchStatus.WILDCARD)]
+            else:
+                relevant_subjects = [
+                    (subject_fqn, subject_status) for subject_fqn, subject_status in matched_constraint.subject_matches
+                    if subject_fqn == changed.fqn or changed_str.startswith(str(subject_fqn) + ".")
+                ]
 
             if not relevant_subjects:
                 continue
 
-            kinds = {"IMPORTS", "CALLS", "INHERITS"} if pred == PredicateType.REQUIRES_DEPENDENCY else {"CONTAINS", "CALLS"}
-            label = "has no dependency on" if pred == PredicateType.REQUIRES_DEPENDENCY else "does not implement"
-
+            kinds = {"CONTAINS", "IMPORTS", "CALLS", "INHERITS"} if pred == PredicateType.REQUIRES_DEPENDENCY else {"CONTAINS", "CALLS"}
+            label = "has no dependency on any module matching" if pred == PredicateType.REQUIRES_DEPENDENCY else "does not implement any module matching"
             for subject_fqn, subject_status in relevant_subjects:
                 subject_str = str(subject_fqn)
                 reachable = _reachable_nodes(subject_str, adjacency, kinds)
-                if not any(str(object_fqn) in reachable for object_fqn, _ in matched_constraint.object_matches):
+                if not any(r == str(object_fqn) or r.startswith(str(object_fqn) + ".") for r in reachable for object_fqn, _ in matched_constraint.object_matches):
                     highest_status = subject_status
                     for _, object_status in matched_constraint.object_matches:
                         if _PRIORITY[object_status] > _PRIORITY[highest_status]:
@@ -147,7 +163,7 @@ def check_change_triggered_predicates(
                         changed_fqn=changed.fqn,
                         matched_fqn=subject_fqn,
                         match_status=highest_status,
-                        evidence=f"{subject_str} {label} any module matching {matched_constraint.constraint.object}",
+                        evidence=f"{subject_str} {label} {matched_constraint.constraint.object}",
                         change_type=changed.change_type,
                     ))
     return violations
@@ -183,6 +199,12 @@ def detect(diff_result: DiffResult, adg: ADG) -> CPTResult:
         if mc.constraint.predicate.value.startswith("requires_")
     ]
     violations = suppress_outweighed_prohibits(violations, active_requires)
+
+    active_prohibits: list[ConstraintEdge] = [
+        mc.constraint for mc in matched.values()
+        if mc.constraint.predicate.value.startswith("prohibits_")
+    ]
+    violations = suppress_outweighed_requires(violations, active_prohibits)
 
     orphans: list[ConstraintEdge] = [
         c for c in adg.constraint_edges if id(c) not in matched
