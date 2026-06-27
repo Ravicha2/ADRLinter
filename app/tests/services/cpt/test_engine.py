@@ -340,6 +340,7 @@ class TestCheckChangeTriggeredPredicates:
         violations = check_change_triggered_predicates(matched, adjacency, changed)
         assert len(violations) == 1
         assert violations[0].constraint.adr_id == "ADR-004"
+        assert violations[0].evidence == "app.api.orders has no dependency on any module matching app.auth.middleware"
 
     def test_requires_dependency_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
@@ -390,6 +391,43 @@ class TestCheckChangeTriggeredPredicates:
         changed = [_changed_fqn("app.middleware")]
         violations = check_change_triggered_predicates(matched, adjacency, changed)
         assert len(violations) == 1
+        assert violations[0].evidence == "app.middleware does not implement any module matching app.auth.middleware"
+
+    def test_requires_wildcard_multiple_objects_semantics(self) -> None:
+        from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.REQUIRES_DEPENDENCY,
+            object="app.auth.*",
+            justification="test",
+            adr_id="ADR-004",
+            adr_path="docs/adr/004.md",
+        )
+        # Case 1: Zero objects reachable -> exactly 1 violation emitted
+        adjacency_empty = _build_adjacency(set())
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api.orders"), MatchStatus.WILDCARD)],
+                object_matches=[
+                    (FQN.from_dotted("app.auth.a"), MatchStatus.WILDCARD),
+                    (FQN.from_dotted("app.auth.b"), MatchStatus.WILDCARD),
+                ],
+            ),
+        }
+        changed = [_changed_fqn("app.api.orders")]
+        violations_empty = check_change_triggered_predicates(matched, adjacency_empty, changed)
+        assert len(violations_empty) == 1
+        assert violations_empty[0].evidence == "app.api.orders has no dependency on any module matching app.auth.*"
+
+        # Case 2: One object reachable -> 0 violations emitted
+        adjacency_partial = _build_adjacency({
+            Edge(source="app.api.orders", target="app.auth.a", kind="IMPORTS"),
+        })
+        violations_partial = check_change_triggered_predicates(matched, adjacency_partial, changed)
+        assert len(violations_partial) == 0
 
     def test_requires_implementation_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency

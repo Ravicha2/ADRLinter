@@ -52,10 +52,6 @@ def _reachable_nodes(start: str, adjacency: dict[str, list[Edge]], kinds: set[st
     return visited
 
 
-def _reachable(start: str, target: str, adjacency: dict[str, list[Edge]], kinds: set[str]) -> bool:
-    return target in _reachable_nodes(start, adjacency, kinds)
-
-
 def match_constraints(adg: ADG) -> dict[int, MatchedConstraint]:
     matched: dict[int, MatchedConstraint] = {}
     for constraint in adg.constraint_edges:
@@ -138,19 +134,22 @@ def check_change_triggered_predicates(
             label = "has no dependency on" if pred == PredicateType.REQUIRES_DEPENDENCY else "does not implement"
 
             for subject_fqn, subject_status in relevant_subjects:
-                for object_fqn, object_status in matched_constraint.object_matches:
-                    higher = subject_status if _PRIORITY[subject_status] >= _PRIORITY[object_status] else object_status
-                    subject_str = str(subject_fqn)
-                    object_str = str(object_fqn)
-                    if not _reachable(subject_str, object_str, adjacency, kinds):
-                        violations.append(Violation(
-                            constraint=matched_constraint.constraint,
-                            changed_fqn=changed.fqn,
-                            matched_fqn=subject_fqn,
-                            match_status=higher,
-                            evidence=f"{subject_str} {label} {object_str}",
-                            change_type=changed.change_type,
-                        ))
+                subject_str = str(subject_fqn)
+                reachable = _reachable_nodes(subject_str, adjacency, kinds)
+                if not any(str(object_fqn) in reachable for object_fqn, _ in matched_constraint.object_matches):
+                    highest_status = subject_status
+                    for _, object_status in matched_constraint.object_matches:
+                        if _PRIORITY[object_status] > _PRIORITY[highest_status]:
+                            highest_status = object_status
+
+                    violations.append(Violation(
+                        constraint=matched_constraint.constraint,
+                        changed_fqn=changed.fqn,
+                        matched_fqn=subject_fqn,
+                        match_status=highest_status,
+                        evidence=f"{subject_str} {label} any module matching {matched_constraint.constraint.object}",
+                        change_type=changed.change_type,
+                    ))
     return violations
 
 
