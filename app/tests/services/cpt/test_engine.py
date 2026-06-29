@@ -341,8 +341,8 @@ class TestCheckChangeTriggeredPredicates:
         violations = check_change_triggered_predicates(matched, adjacency, changed)
         assert len(violations) == 1
         assert violations[0].constraint.adr_id == "ADR-004"
-        # BFS starts from the wildcard prefix 'app.api', not the individual module
-        assert violations[0].evidence == "app.api has no dependency on any module matching app.auth.middleware"
+        # BFS starts from the changed FQN, not the wildcard prefix
+        assert violations[0].evidence == "app.api.orders has no dependency on any module matching app.auth.middleware"
 
     def test_requires_dependency_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
@@ -425,7 +425,7 @@ class TestCheckChangeTriggeredPredicates:
         changed = [_changed_fqn("app.api.orders")]
         violations_empty = check_change_triggered_predicates(matched, adjacency_empty, changed)
         assert len(violations_empty) == 1
-        assert violations_empty[0].evidence == "app.api has no dependency on any module matching app.auth.*"
+        assert violations_empty[0].evidence == "app.api.orders has no dependency on any module matching app.auth.*"
 
         # Case 2: One object reachable via prefix -> 0 violations emitted
         # Need CONTAINS edge from prefix to child so BFS can reach the IMPORTS target

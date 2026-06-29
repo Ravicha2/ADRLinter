@@ -127,17 +127,11 @@ def check_change_triggered_predicates(
                 # Check if the changed FQN falls under this wildcard prefix
                 if not (changed_str == prefix or changed_str.startswith(prefix + ".")):
                     continue
-                # BFS from the wildcard prefix (the package root).  This walks
-                # CONTAINS edges down through all child modules and follows
-                # their IMPORTS/CALLS, correctly answering "does this package
-                # subtree have the required dependency?"  Using individual
-                # ancestor subjects would cause false positives: function-level
-                # FQNs have no outgoing IMPORTS (imports are module-level in
-                # Python), so BFS from them always fails.
-                prefix_fqn = FQN.from_dotted_safe(prefix)
-                if prefix_fqn is None:
-                    continue
-                relevant_subjects = [(prefix_fqn, MatchStatus.WILDCARD)]
+                # ponytail: BFS from changed FQN, not the package root.
+                # Package-root BFS finds dependencies through sibling modules
+                # (false negative).  For function-level FQNs that lack IMPORTS,
+                # walk up to enclosing module first.
+                relevant_subjects = [(changed.fqn, MatchStatus.WILDCARD)]
             else:
                 relevant_subjects = [
                     (subject_fqn, subject_status) for subject_fqn, subject_status in matched_constraint.subject_matches

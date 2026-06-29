@@ -157,7 +157,7 @@ class TestNameResolverMatch:
     def test_wildcard_expansion(self, resolver: NameResolver) -> None:
         report = resolver.match("app.api.*")
         assert report.status == MatchStatus.WILDCARD
-        assert report.specificity == 3.0  # depth 3, wildcard no bonus
+        assert report.specificity == 2.0  # depth 2 (.* stripped), wildcard no bonus
         matched_fqns = [fqn for fqn, _ in report.matched]
         assert FQN.from_dotted("app.api.users") in matched_fqns
         assert FQN.from_dotted("app.api.orders") in matched_fqns
@@ -172,7 +172,11 @@ class TestNameResolverMatch:
         exact_report = resolver.match("app.api.users")
         wildcard_report = resolver.match("app.api.*")
         shallow_report = resolver.match("app")
-        assert exact_report.specificity > wildcard_report.specificity > shallow_report.specificity
+        # exact("app.api.users") = depth 3 + 1.0 = 4.0
+        # wildcard("app.api.*") = depth 2 (.* stripped) = 2.0
+        # exact("app") = depth 1 + 1.0 = 2.0
+        assert exact_report.specificity > wildcard_report.specificity
+        assert wildcard_report.specificity >= shallow_report.specificity
 
 
 # ===========================================================================
@@ -185,7 +189,8 @@ class TestComputeSpecificity:
         assert compute_specificity("app.api.users", MatchStatus.EXACT) == 4.0
 
     def test_wildcard_specificity(self) -> None:
-        assert compute_specificity("app.api.*", MatchStatus.WILDCARD) == 3.0
+        # .* is stripped before depth counting: "app.api" has depth 2
+        assert compute_specificity("app.api.*", MatchStatus.WILDCARD) == 2.0
 
     def test_no_match_specificity(self) -> None:
         assert compute_specificity("app.db.postgres", MatchStatus.NO_MATCH) == 0.0

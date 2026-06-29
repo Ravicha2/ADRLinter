@@ -1,6 +1,6 @@
 """E2E sanity test: seed build via CLI + mock diff → CPT detect → print results.
 
-Run with: uv run python tests/sanity/test_cpt_detect.py
+Run with: uv run python tests/sanity/e2e_test_cpt_detect.py
 """
 
 import logging
@@ -15,15 +15,14 @@ import sys
 from cli.config import load_config
 from cli.main import _resolve_repo_path, app
 from services.adg import parse_repo
-from services.adg.merge import merge_constraints
-from services.cpt.engine import detect as cpt_detect
-from services.cpt.diff_processor import augment_adg, process_diff
+from services.cpt.diff_processor import process_diff
 from services.extract import extract_all_adrs
 from services.extract.engine import derive_package_context
 from services.models import (
     CommitDiff,
     FileChange,
 )
+from services.pipeline import ADGPipeline, PipelineInputs
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -37,6 +36,8 @@ def build_mock_diff(repo_name: str, repo_path: Path) -> CommitDiff:
         #    - Evidence: create_user_route directly imports/uses User.create from models.
         # 2. [001] requires_dependency (app.routes.* -> app.services.*):
         #    - Evidence: create_user_route does not call or depend on the required service layer.
+        # 3. [001] requires_dependency (app.routes.* -> app.services.*):
+        #    - Evidence: refresh_token_route does not call or depend on the required service layer.
         # ==============================================================================
         users_path = "app/routes/users.py"
         auth_path = "app/routes/auth.py"
@@ -178,27 +179,23 @@ def main() -> None:
         all_constraints.extend(r.constraints)
     print(f"  {len(all_constraints)} constraints")
 
-    print("[detect] merge_constraints")
-    merged = merge_constraints(adg, all_constraints)
-    print(f"  {len(merged.constraint_edges)} constraint_edges")
-
-    # Step 3: parse mock code into changed FQNs via diff_processor
+    # Step 3: parse mock diff into changed FQNs
     print("\n[detect] process mock diff -> changed FQNs")
     mock_diff = build_mock_diff(repo_name, repo_path)
     diff_result = process_diff(mock_diff)
     for cf in diff_result.changed_fqns:
         print(f"    {cf.change_type:10s} {cf.fqn}")
 
-    # Step 4: augment ADG with new code so BFS can expand from changed FQNs
-    print("[detect] augment ADG with new code from diff")
-    before_nodes = len(merged.nodes)
-    before_edges = len(merged.edges)
-    augment_adg(merged, mock_diff)
-    print(f"  {len(merged.nodes) - before_nodes} new nodes, {len(merged.edges) - before_edges} new edges")
-
-    # Step 5: run CPT detect
-    print("\n[detect] CPT detect")
-    cpt_result = cpt_detect(diff_result, merged)
+    # Step 4: run pipeline (merge + specificity + augment + detect)
+    print("[detect] running ADGPipeline")
+    pipeline = ADGPipeline()
+    pipeline_inputs = PipelineInputs(
+        adg=adg,
+        constraints=all_constraints,
+        diff_result=diff_result,
+        commit_diff=mock_diff,
+    )
+    cpt_result = pipeline.run_prepared(pipeline_inputs)
 
     print(f"  violations:   {len(cpt_result.violations)}")
     print(f"  orphans:      {len(cpt_result.orphans)}")
