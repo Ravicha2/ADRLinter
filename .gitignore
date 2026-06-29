@@ -27,3 +27,5 @@ CLAUDE.md
 # seeded repos
 repos.DS_Store
 repos/
+.worktrees
+.superpowers

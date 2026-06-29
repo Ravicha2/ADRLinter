@@ -39,10 +39,16 @@ def fqn_matches_pattern(fqn: FQN, pattern: str) -> MatchStatus:
 
 
 def compute_specificity(pattern: str, status: MatchStatus) -> float:
-    """Compute specificity from pattern depth and match status."""
+    """Compute specificity from pattern depth and match status.
+
+    Strips .* wildcard suffix before counting depth so 'app.routes.*'
+    has depth 2, not 3.
+    """
     if status == MatchStatus.NO_MATCH:
         return 0.0
-    depth = len(pattern.rstrip(".").split("."))
+    is_wildcard = pattern.endswith(".*")
+    clean = pattern[:-2] if is_wildcard else pattern
+    depth = len(clean.rstrip(".").split("."))
     return float(depth) + (1.0 if status == MatchStatus.EXACT else 0.0)
 
 

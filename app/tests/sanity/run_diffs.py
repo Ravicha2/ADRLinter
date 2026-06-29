@@ -16,10 +16,9 @@ from rich.console import Console
 from rich.table import Table
 
 from services.cpt import process_diff
-from services.cpt.diff_processor import augment_adg
-from services.cpt.engine import detect as cpt_detect
 from services.graph.connector import GraphStore
 from services.models import CommitDiff, FileChange
+from services.pipeline import ADGPipeline, PipelineInputs
 
 console = Console()
 
@@ -51,6 +50,9 @@ def main() -> None:
     console.print("[bold]Loading ADG from Neo4j...[/]")
     adg = store.load_adg()
     console.print(f"  {len(adg.nodes)} nodes, {len(adg.edges)} edges, {len(adg.constraint_edges)} constraints")
+    for c in adg.constraint_edges:
+        if "0010" in c.adr_id or "0012" in c.adr_id:
+            console.print(f"  Constraint: {c.adr_id} | {c.subject} | {c.predicate.value} | {c.object}")
     store.close()
 
     for diff_path in sorted(DIFF_DIR.glob("*.json")):
@@ -74,12 +76,15 @@ def main() -> None:
             fqn_table.add_row(str(cf.fqn), cf.change_type)
         console.print(fqn_table)
 
-        # ponytail: mutate a copy so we don't pollute ADG across diff files
-        from copy import deepcopy
-        adg_for_diff = deepcopy(adg)
-        augment_adg(adg_for_diff, commit_diff)
-
-        cpt_result = cpt_detect(diff_result, adg_for_diff)
+        # Run pipeline (merge + specificity + augment + detect)
+        pipeline = ADGPipeline()
+        pipeline_inputs = PipelineInputs(
+            adg=adg,
+            constraints=[],  # constraints already in ADG from seed
+            diff_result=diff_result,
+            commit_diff=commit_diff,
+        )
+        cpt_result = pipeline.run_prepared(pipeline_inputs)
 
 
         if cpt_result.violations:

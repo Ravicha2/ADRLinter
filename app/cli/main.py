@@ -13,15 +13,13 @@ from rich.table import Table
 
 from cli.config import load_config
 from services.adg import parse_repo
-from services.adg.merge import merge_constraints
 from services.models import FQNKind, SymbolicConstraint
 from services.cpt import GitAdapter, process_diff
-from services.cpt.diff_processor import augment_adg
-from services.cpt.engine import detect as cpt_detect
 from services.extract import extract_all_adrs
 from services.extract.engine import derive_package_context
 from services.graph.connector import GraphStore
-from services.models import ConstraintEdge, DiffResult, FQNKind
+from services.models import DiffResult, FQNKind
+from services.pipeline import ADGPipeline, PipelineInputs
 
 console = Console()
 
@@ -148,14 +146,17 @@ def detect(
     for ext_result in extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract, package_context=package_context):
         all_constraints.extend(ext_result.constraints)
 
-    merged = merge_constraints(adg, all_constraints)
-    console.print(f"  ADG: {len(merged.nodes)} nodes, {len(merged.edges)} edges, {len(merged.constraint_edges)} constraints")
+    # 5. Pipeline: merge, compute specificity, augment, detect
+    pipeline = ADGPipeline()
+    pipeline_inputs = PipelineInputs(
+        adg=adg,
+        constraints=all_constraints,
+        diff_result=result,
+        commit_diff=commit_diff,
+    )
+    cpt_result = pipeline.run_prepared(pipeline_inputs)
 
-    # 4b. Augment ADG with new code from the diff so BFS can expand from changed FQNs
-    augment_adg(merged, commit_diff)
-
-    # 5. Run CPT detect
-    cpt_result = cpt_detect(result, merged)
+    console.print(f"  ADG: {len(adg.nodes)} nodes, {len(adg.edges)} edges, {len(all_constraints)} constraints")
 
     # 6. Display violations
     if cpt_result.violations:
@@ -229,9 +230,10 @@ def seed_build(
         total_errors += len(result.errors)
     console.print(f"  Extracted {len(all_constraints)} constraints ({total_errors} errors)")
 
-    # Merge
+    # Merge and compute specificity
     console.print("[bold]Step 3:[/] Merging ADG with constraints...")
-    merged = merge_constraints(adg, all_constraints)
+    pipeline = ADGPipeline()
+    merged = pipeline.build_seed(adg, all_constraints)
     external_count = sum(1 for n in merged.nodes if n.kind == FQNKind.EXTERNAL)
     console.print(f"  {len(merged.constraint_edges)} constraint edges, {external_count} EXTERNAL nodes")
 

@@ -1,9 +1,8 @@
-"""Tests for CPT engine: BFS traversal, constraint matching, predicate checking,
+"""Tests for CPT engine: constraint matching, predicate checking,
 and detect integration.
 
 Public interface under test:
-    bfs_neighborhood: k-hop BFS from changed FQNs
-    match_constraints: single-pass constraint matching against neighborhood
+    match_constraints: single-pass constraint matching against all ADG nodes
     check_structural_predicates: PROHIBITS_* evaluation (no changed_fqn)
     check_change_triggered_predicates: REQUIRES_* evaluation (per changed_fqn)
     detect: full CPT pipeline
@@ -145,130 +144,41 @@ def _changed_fqn(fqn_str: str, change_type: str = "modified") -> ChangedFQN:
 
 
 # ===========================================================================
-# 1. bfs_neighborhood: k-hop BFS from changed FQNs
-# ===========================================================================
-
-
-class TestBfsNeighborhood:
-    """BFS traversal from changed FQNs, both directions, k-hop bounded."""
-
-    def test_single_fqn_no_edges(self) -> None:
-        from services.cpt.engine import bfs_neighborhood
-
-        adg = ADG(
-            nodes=[FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0)],
-            edges=[],
-        )
-        changed = [_changed_fqn("app")]
-        neighborhood, reachable = bfs_neighborhood(adg, changed, k=3)
-        assert FQN.from_dotted("app") in neighborhood
-        assert len(reachable) == 0
-
-    def test_one_hop_outward(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood
-
-        changed = [_changed_fqn("app.api.users")]
-        neighborhood, reachable = bfs_neighborhood(sample_adg, changed, k=1)
-        assert FQN.from_dotted("app.api.users") in neighborhood
-        assert FQN.from_dotted("app.auth.middleware") in neighborhood
-        assert FQN.from_dotted("app.api") in neighborhood
-
-    def test_two_hop(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood
-
-        changed = [_changed_fqn("app.api.users")]
-        neighborhood, reachable = bfs_neighborhood(sample_adg, changed, k=2)
-        assert FQN.from_dotted("app.auth") in neighborhood
-        assert FQN.from_dotted("app") in neighborhood
-
-    def test_three_hop_limit(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood
-
-        changed = [_changed_fqn("app.api.users")]
-        neighborhood_k3, _ = bfs_neighborhood(sample_adg, changed, k=3)
-        neighborhood_k1, _ = bfs_neighborhood(sample_adg, changed, k=1)
-        assert len(neighborhood_k3) >= len(neighborhood_k1)
-
-    def test_multiple_changed_fqns(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood
-
-        changed = [_changed_fqn("app.api.users"), _changed_fqn("app.api.orders")]
-        neighborhood, reachable = bfs_neighborhood(sample_adg, changed, k=1)
-        assert FQN.from_dotted("app.api.users") in neighborhood
-        assert FQN.from_dotted("app.api.orders") in neighborhood
-
-    def test_reachable_edges_captured(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood
-
-        changed = [_changed_fqn("app.api.users")]
-        neighborhood, reachable = bfs_neighborhood(sample_adg, changed, k=1)
-        import_edge = Edge(source="app.api.users", target="app.auth.middleware", kind="IMPORTS")
-        assert import_edge in reachable
-
-    def test_inward_direction_catches_callers(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood
-
-        changed = [_changed_fqn("app.auth.middleware")]
-        neighborhood, _ = bfs_neighborhood(sample_adg, changed, k=1)
-        assert FQN.from_dotted("app.api.users") in neighborhood
-        assert FQN.from_dotted("app.services.user") in neighborhood
-
-    def test_all_neighborhood_edges_captured(self, sample_adg: ADG) -> None:
-        """Correctness: edges between two neighborhood nodes found via different
-        routes must appear in reachable, even if neither was a discovery edge
-        during BFS expansion."""
-        from services.cpt.engine import bfs_neighborhood
-
-        # With k=2 from app.api.orders, we reach both app.api and app.models.user.
-        # The CONTAINS edge app.api -> app.api.orders has both endpoints in
-        # neighborhood but was NOT a discovery edge (app.api.orders was the seed).
-        changed = [_changed_fqn("app.api.orders")]
-        neighborhood, reachable = bfs_neighborhood(sample_adg, changed, k=2)
-        contains_edge = Edge(source="app.api", target="app.api.orders", kind="CONTAINS")
-        assert contains_edge in reachable
-
-
-# ===========================================================================
-# 2. match_constraints: single-pass matching
+# 1. match_constraints: single-pass matching against all ADG nodes
 # ===========================================================================
 
 
 class TestMatchConstraints:
-    """For each constraint, match neighborhood FQNs against subject/object."""
+    """For each constraint, match all ADG node FQNs against subject/object."""
 
-    def test_neighborhood_fqn_matches_constraint_subject(self, sample_adg: ADG, sample_constraints: list[ConstraintEdge]) -> None:
-        from services.cpt.engine import bfs_neighborhood, match_constraints
+    def test_adg_fqn_matches_constraint_subject(self, sample_adg: ADG, sample_constraints: list[ConstraintEdge]) -> None:
+        from services.cpt.engine import match_constraints
 
         adg_with_constraints = ADG(
             nodes=sample_adg.nodes,
             edges=sample_adg.edges,
             constraint_edges=sample_constraints,
         )
-        # k=3 so app.models.user (object of ADR-003) is reachable
-        changed = [_changed_fqn("app.api.users")]
-        neighborhood, _ = bfs_neighborhood(adg_with_constraints, changed, k=3)
-        matched = match_constraints(neighborhood, adg_with_constraints)
+        matched = match_constraints(adg_with_constraints)
         matched_adr_ids = {mc.constraint.adr_id for mc in matched.values()}
         assert "ADR-003" in matched_adr_ids
         assert "ADR-004" in matched_adr_ids
 
-    def test_neighborhood_fqn_matches_constraint_object(self, sample_adg: ADG, sample_constraints: list[ConstraintEdge]) -> None:
-        from services.cpt.engine import bfs_neighborhood, match_constraints
+    def test_adg_fqn_matches_constraint_object(self, sample_adg: ADG, sample_constraints: list[ConstraintEdge]) -> None:
+        from services.cpt.engine import match_constraints
 
         adg_with_constraints = ADG(
             nodes=sample_adg.nodes,
             edges=sample_adg.edges,
             constraint_edges=sample_constraints,
         )
-        changed = [_changed_fqn("app.api.users")]
-        neighborhood, _ = bfs_neighborhood(adg_with_constraints, changed, k=1)
-        matched = match_constraints(neighborhood, adg_with_constraints)
-        # app.auth.middleware is in neighborhood and matches object of ADR-004
+        matched = match_constraints(adg_with_constraints)
+        # app.auth.middleware is in ADG nodes and matches object of ADR-004
         matched_adr_ids = {mc.constraint.adr_id for mc in matched.values()}
         assert "ADR-004" in matched_adr_ids
 
     def test_no_constraints_matched(self, sample_adg: ADG) -> None:
-        from services.cpt.engine import bfs_neighborhood, match_constraints
+        from services.cpt.engine import match_constraints
 
         constraints = [
             ConstraintEdge(
@@ -281,9 +191,7 @@ class TestMatchConstraints:
             ),
         ]
         adg = ADG(nodes=sample_adg.nodes, edges=sample_adg.edges, constraint_edges=constraints)
-        changed = [_changed_fqn("app.api.users")]
-        neighborhood, _ = bfs_neighborhood(adg, changed, k=1)
-        matched = match_constraints(neighborhood, adg)
+        matched = match_constraints(adg)
         assert len(matched) == 0
 
     def test_constraint_with_empty_subject_bucket_is_orphan(self, sample_adg: ADG) -> None:
@@ -300,19 +208,28 @@ class TestMatchConstraints:
             ),
         ]
         adg = ADG(nodes=sample_adg.nodes, edges=sample_adg.edges, constraint_edges=constraints)
-        # Small neighborhood that has object match but no subject match
-        neighborhood = {FQN.from_dotted("app.auth.middleware")}
-        matched = match_constraints(neighborhood, adg)
+        matched = match_constraints(adg)
         assert len(matched) == 0
 
 
 # ===========================================================================
-# 3. check_structural_predicates: PROHIBITS_* evaluation
+# 2. check_structural_predicates: PROHIBITS_* evaluation
 # ===========================================================================
 
 
 class TestCheckStructuralPredicates:
     """PROHIBITS_* constraints evaluated without changed_fqn."""
+
+    def test_reachable_nodes(self) -> None:
+        from services.cpt.engine import _reachable_nodes, _build_adjacency
+        from services.models import Edge
+
+        adjacency = _build_adjacency({
+            Edge(source="app.api.users", target="app.auth.middleware", kind="IMPORTS"),
+            Edge(source="app.auth.middleware", target="app.models.user", kind="IMPORTS"),
+        })
+        reachable = _reachable_nodes("app.api.users", adjacency, {"IMPORTS"})
+        assert reachable == {"app.auth.middleware", "app.models.user"}
 
     def test_prohibits_dependency_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
@@ -392,7 +309,7 @@ class TestCheckStructuralPredicates:
 
 
 # ===========================================================================
-# 4. check_change_triggered_predicates: REQUIRES_* evaluation
+# 3. check_change_triggered_predicates: REQUIRES_* evaluation
 # ===========================================================================
 
 
@@ -411,6 +328,7 @@ class TestCheckChangeTriggeredPredicates:
             adr_id="ADR-004",
             adr_path="docs/adr/004.md",
         )
+        # Empty adjacency: BFS from prefix 'app.api' reaches nothing → violation
         adjacency = _build_adjacency(set())
         matched = {
             id(constraint): MatchedConstraint(
@@ -423,6 +341,8 @@ class TestCheckChangeTriggeredPredicates:
         violations = check_change_triggered_predicates(matched, adjacency, changed)
         assert len(violations) == 1
         assert violations[0].constraint.adr_id == "ADR-004"
+        # BFS starts from the changed FQN, not the wildcard prefix
+        assert violations[0].evidence == "app.api.orders has no dependency on any module matching app.auth.middleware"
 
     def test_requires_dependency_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
@@ -436,7 +356,9 @@ class TestCheckChangeTriggeredPredicates:
             adr_id="ADR-004",
             adr_path="docs/adr/004.md",
         )
+        # BFS from prefix 'app.api' needs CONTAINS edge to reach child modules
         adjacency = _build_adjacency({
+            Edge(source="app.api", target="app.api.users", kind="CONTAINS"),
             Edge(source="app.api.users", target="app.auth.middleware", kind="IMPORTS"),
         })
         matched = {
@@ -473,6 +395,46 @@ class TestCheckChangeTriggeredPredicates:
         changed = [_changed_fqn("app.middleware")]
         violations = check_change_triggered_predicates(matched, adjacency, changed)
         assert len(violations) == 1
+        assert violations[0].evidence == "app.middleware does not implement any module matching app.auth.middleware"
+
+    def test_requires_wildcard_multiple_objects_semantics(self) -> None:
+        from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.REQUIRES_DEPENDENCY,
+            object="app.auth.*",
+            justification="test",
+            adr_id="ADR-004",
+            adr_path="docs/adr/004.md",
+        )
+        # Case 1: Zero objects reachable -> exactly 1 violation emitted
+        # BFS starts from prefix 'app.api'
+        adjacency_empty = _build_adjacency(set())
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api.orders"), MatchStatus.WILDCARD)],
+                object_matches=[
+                    (FQN.from_dotted("app.auth.a"), MatchStatus.WILDCARD),
+                    (FQN.from_dotted("app.auth.b"), MatchStatus.WILDCARD),
+                ],
+            ),
+        }
+        changed = [_changed_fqn("app.api.orders")]
+        violations_empty = check_change_triggered_predicates(matched, adjacency_empty, changed)
+        assert len(violations_empty) == 1
+        assert violations_empty[0].evidence == "app.api.orders has no dependency on any module matching app.auth.*"
+
+        # Case 2: One object reachable via prefix -> 0 violations emitted
+        # Need CONTAINS edge from prefix to child so BFS can reach the IMPORTS target
+        adjacency_partial = _build_adjacency({
+            Edge(source="app.api", target="app.api.orders", kind="CONTAINS"),
+            Edge(source="app.api.orders", target="app.auth.a", kind="IMPORTS"),
+        })
+        violations_partial = check_change_triggered_predicates(matched, adjacency_partial, changed)
+        assert len(violations_partial) == 0
 
     def test_requires_implementation_not_violated(self) -> None:
         from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
@@ -528,7 +490,7 @@ class TestCheckChangeTriggeredPredicates:
 
 
 # ===========================================================================
-# 5. resolve: specificity conflict + deduplication
+# 4. resolve: specificity conflict + deduplication
 # ===========================================================================
 
 
@@ -666,7 +628,7 @@ class TestResolve:
 
 
 # ===========================================================================
-# 6. detect: full CPT pipeline
+# 5. detect: full CPT pipeline
 # ===========================================================================
 
 
@@ -687,7 +649,7 @@ class TestDetect:
             changed_files=[FileChange(path="app/api/orders.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.orders")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
         assert isinstance(result, CPTResult)
         prohibit_violations = [v for v in result.violations if v.constraint.predicate == PredicateType.PROHIBITS_DEPENDENCY]
         assert len(prohibit_violations) >= 1
@@ -706,7 +668,7 @@ class TestDetect:
             changed_files=[FileChange(path="app/api/users.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.users")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
         require_violations = [v for v in result.violations if v.constraint.predicate == PredicateType.REQUIRES_DEPENDENCY and v.constraint.adr_id == "ADR-004"]
         assert len(require_violations) == 0
 
@@ -720,7 +682,7 @@ class TestDetect:
             changed_files=[FileChange(path="app/api/users.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.users")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
         assert len(result.violations) == 0
 
     def test_detect_orphans_reported(self, sample_adg: ADG) -> None:
@@ -745,27 +707,9 @@ class TestDetect:
             changed_files=[FileChange(path="app/api/users.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.users")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
         assert len(result.orphans) >= 1
         assert any(c.adr_id == "ADR-999" for c in result.orphans)
-
-    def test_detect_neighborhood_in_result(self, sample_adg: ADG, sample_constraints: list[ConstraintEdge]) -> None:
-        from services.cpt.engine import detect
-
-        adg = ADG(
-            nodes=sample_adg.nodes,
-            edges=sample_adg.edges,
-            constraint_edges=sample_constraints,
-        )
-        diff = DiffResult(
-            commit_sha="abc123",
-            parent_sha="def456",
-            changed_files=[FileChange(path="app/api/users.py", status="modified")],
-            changed_fqns=[_changed_fqn("app.api.users")],
-        )
-        result = detect(diff, adg, k=3)
-        assert len(result.neighborhood) > 0
-        assert FQN.from_dotted("app.api.users") in result.neighborhood
 
     def test_detect_specificity_resolution(self, sample_adg: ADG) -> None:
         from services.cpt.engine import detect
@@ -801,14 +745,16 @@ class TestDetect:
             changed_files=[FileChange(path="app/middleware/auth.py", status="modified")],
             changed_fqns=[_changed_fqn("app.middleware.auth")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
         prohibit_violations = [v for v in result.violations if v.constraint.predicate == PredicateType.PROHIBITS_IMPLEMENTATION]
         require_violations = [v for v in result.violations if v.constraint.predicate == PredicateType.REQUIRES_IMPLEMENTATION]
-        assert len(prohibit_violations) == 0
+        # app.middleware has its prohibit suppressed by requires, while app.auth retains its valid structural prohibit under full-ADG evaluation
+        middleware_prohibits = [v for v in prohibit_violations if str(v.matched_fqn) == "app.middleware"]
+        assert len(middleware_prohibits) == 0
 
 
 # ===========================================================================
-# 7. Data models: Violation and CPTResult exist with correct shape
+# 6. Data models: Violation and CPTResult exist with correct shape
 # ===========================================================================
 
 
@@ -849,12 +795,10 @@ class TestCptDataModels:
             violations=[],
             orphans=[],
             self_loop_constraints=[],
-            neighborhood={FQN.from_dotted("app")},
         )
         assert result.violations == []
         assert result.orphans == []
         assert result.self_loop_constraints == []
-        assert FQN.from_dotted("app") in result.neighborhood
 
     def test_matched_constraint_fields(self) -> None:
         from services.cpt.engine import MatchedConstraint
@@ -879,7 +823,7 @@ class TestCptDataModels:
 
 
 # ===========================================================================
-# 8. Self-loop constraint: subject == object produces no false-positive violations
+# 7. Self-loop constraint: subject == object produces no false-positive violations
 # ===========================================================================
 
 
@@ -921,7 +865,7 @@ class TestSelfLoopConstraint:
             changed_files=[FileChange(path="app/auth/middleware.py", status="modified")],
             changed_fqns=[_changed_fqn("app.auth.middleware")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
         # Self-loop constraint must not produce violations
         assert len(result.violations) == 0
         # Self-loop constraint surfaced for human review
@@ -955,7 +899,7 @@ class TestSelfLoopConstraint:
             changed_files=[FileChange(path="app/api/users.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.users")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
         # Normal constraint still processed
         assert any(v.constraint.adr_id == "ADR-003" for v in result.violations)
         # Self-loop filtered out, surfaced separately

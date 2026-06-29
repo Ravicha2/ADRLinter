@@ -38,7 +38,7 @@ def derive_package_context(adg: "ADG") -> list[str]:  # noqa: F821
     top_modules: set[str] = set()
     for n in adg.nodes:
         parts = n.fqn.parts
-        if not parts:
+        if not parts or len(parts) <= 1:
             continue
         top = parts[0]
         if top == "tests":

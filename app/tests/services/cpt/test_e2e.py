@@ -119,7 +119,7 @@ class TestE2EDetect:
             commit_sha="abc123",
             changed_fqns=[_changed("app.api.orders")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
 
         prohibit_repo = [v for v in result.violations if v.constraint.adr_id == "ADR-001"]
         assert len(prohibit_repo) >= 1
@@ -132,7 +132,7 @@ class TestE2EDetect:
             commit_sha="abc123",
             changed_fqns=[_changed("app.api.orders")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
 
         require_auth = [v for v in result.violations if v.constraint.adr_id == "ADR-002"]
         assert len(require_auth) >= 1
@@ -144,7 +144,7 @@ class TestE2EDetect:
             commit_sha="abc123",
             changed_fqns=[_changed("app.service.user")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
 
         require_auth = [v for v in result.violations if v.constraint.adr_id == "ADR-002"]
         assert len(require_auth) == 0
@@ -156,7 +156,7 @@ class TestE2EDetect:
             commit_sha="abc123",
             changed_fqns=[_changed("app.api.orders"), _changed("app.api.users")],
         )
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
 
         # app.api.orders violates both ADR-001 and ADR-002
         # app.api.users satisfies ADR-002 (it imports auth via service)
@@ -167,7 +167,7 @@ class TestE2EDetect:
         orphan = _constraint("app.nonexistent.*", PredicateType.PROHIBITS_DEPENDENCY, "app.also.gone", "ADR-999")
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=[orphan])
         diff = DiffResult(commit_sha="abc", changed_fqns=[_changed("app.api.users")])
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
 
         assert any(c.adr_id == "ADR-999" for c in result.orphans)
 
@@ -175,11 +175,10 @@ class TestE2EDetect:
         """No constraints = no violations."""
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=[])
         diff = DiffResult(commit_sha="abc", changed_fqns=[_changed("app.api.users")])
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
 
         assert result.violations == []
         assert result.orphans == []
-        assert len(result.neighborhood) > 0
 
     def test_specificity_resolution_suppresses_prohibits(self, layered_adg: ADG) -> None:
         """Higher-specificity REQUIRES overrides lower-specificity PROHIBITS on same object."""
@@ -189,31 +188,19 @@ class TestE2EDetect:
         ]
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=constraints)
         diff = DiffResult(commit_sha="abc", changed_fqns=[_changed("app.service.user")])
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
 
         prohibit_violations = [v for v in result.violations if v.constraint.predicate == PredicateType.PROHIBITS_IMPLEMENTATION]
         # ADR-005 (specificity 1.0) is outweighed by ADR-006 (specificity 3.0)
         assert len(prohibit_violations) == 0
 
-    def test_neighborhood_includes_changed_fqns(self, layered_adg: ADG, layered_constraints: list[ConstraintEdge]) -> None:
-        """Changed FQNs always appear in neighborhood."""
-        adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=layered_constraints)
-        changed_fqns = [_changed("app.api.users"), _changed("app.api.orders")]
-        diff = DiffResult(commit_sha="abc", changed_fqns=changed_fqns)
-        result = detect(diff, adg, k=3)
-
-        for cf in changed_fqns:
-            assert cf.fqn in result.neighborhood
-
     def test_result_type_shape(self, layered_adg: ADG, layered_constraints: list[ConstraintEdge]) -> None:
         """CPTResult has the expected fields."""
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=layered_constraints)
         diff = DiffResult(commit_sha="abc", changed_fqns=[_changed("app.api.orders")])
-        result = detect(diff, adg, k=3)
+        result = detect(diff, adg)
 
         assert hasattr(result, "violations")
         assert hasattr(result, "orphans")
-        assert hasattr(result, "neighborhood")
         assert isinstance(result.violations, list)
         assert isinstance(result.orphans, list)
-        assert isinstance(result.neighborhood, set)
