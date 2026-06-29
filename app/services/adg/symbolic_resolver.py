@@ -38,7 +38,7 @@ def _general_match(role_general: str, candidates: list[FQNNode]) -> list[FQNNode
 def _walk_contains(fqn: FQN, edges: list, all_nodes: list[FQNNode]) -> list[FQNNode]:
     """Walk CONTAINS edges to find all descendants (not just direct children)."""
     fqn_prefix = str(fqn) + "."
-    return [n for n in all_nodes if str(n.fqn).startswith(fqn_prefix)]
+    return [node for node in all_nodes if str(node.fqn).startswith(fqn_prefix)]
 
 
 def _specific_narrow(role_specific: str, candidates: list[FQNNode]) -> list[FQNNode]:
@@ -97,7 +97,7 @@ def _resolve_side(
         # When specific narrowing fails, return only the shallowest (shortest
         # FQN) match instead of the entire subtree. CPT walks CONTAINS at
         # detection time, so pre-expanding just creates cross-product bloom.
-        shallowest = min(general_matches, key=lambda n: len(str(n.fqn).split(".")))
+        shallowest = min(general_matches, key=lambda node: len(str(node.fqn).split(".")))
         return [shallowest], "general_wildcard"
 
     # Step 5: fallback - substring-match role_specific against all nodes
@@ -128,20 +128,20 @@ def resolve_symbolic_constraints(
     adg = add_external_nodes(adg)
     resolved: list[ResolvedConstraint] = []
 
-    for sc in symbolic:
-        pred_value = sc.predicate.value
+    for sym_constraint in symbolic:
+        pred_value = sym_constraint.predicate.value
 
         subject_nodes, subject_source = _resolve_side(
-            sc.subject_role_general, sc.subject_role_specific, adg,
+            sym_constraint.subject_role_general, sym_constraint.subject_role_specific, adg,
         )
         object_nodes, object_source = _resolve_side(
-            sc.object_role_general, sc.object_role_specific, adg,
+            sym_constraint.object_role_general, sym_constraint.object_role_specific, adg,
         )
 
         # External dependency shortcut: if object has no ADG match and this is
         # a dependency predicate, create an EXTERNAL node
         if not object_nodes and pred_value in ("requires_dependency", "prohibits_dependency"):
-            ext_fqn = FQN.from_dotted(sc.object_role_general)
+            ext_fqn = FQN.from_dotted(sym_constraint.object_role_general)
             ext_node = FQNNode(
                 fqn=ext_fqn,
                 kind=FQNKind.EXTERNAL,
@@ -160,14 +160,14 @@ def resolve_symbolic_constraints(
         if not subject_nodes:
             log.warning(
                 "resolve: [%s] subject '%s'/%s matched nothing, skipping",
-                sc.adr_id, sc.subject_role_general, sc.subject_role_specific,
+                sym_constraint.adr_id, sym_constraint.subject_role_general, sym_constraint.subject_role_specific,
             )
             continue
 
         if not object_nodes:
             log.warning(
                 "resolve: [%s] object '%s'/%s matched nothing, skipping",
-                sc.adr_id, sc.object_role_general, sc.object_role_specific,
+                sym_constraint.adr_id, sym_constraint.object_role_general, sym_constraint.object_role_specific,
             )
             continue
 
@@ -186,11 +186,11 @@ def resolve_symbolic_constraints(
                     continue
                 edge = ConstraintEdge(
                     subject=subj_fqn,
-                    predicate=sc.predicate,
+                    predicate=sym_constraint.predicate,
                     object=obj_fqn,
-                    justification=sc.justification,
-                    adr_id=sc.adr_id,
-                    adr_path=sc.adr_path,
+                    justification=sym_constraint.justification,
+                    adr_id=sym_constraint.adr_id,
+                    adr_path=sym_constraint.adr_path,
                 )
                 resolved.append(ResolvedConstraint(
                     constraint_edge=edge,
@@ -200,10 +200,10 @@ def resolve_symbolic_constraints(
 
         log.info(
             "resolve: [%s] %s/%s -[%s]-> %s/%s  (subjects=%s, objects=%s)",
-            sc.adr_id,
-            sc.subject_role_general, sc.subject_role_specific,
-            sc.predicate.value,
-            sc.object_role_general, sc.object_role_specific,
+            sym_constraint.adr_id,
+            sym_constraint.subject_role_general, sym_constraint.subject_role_specific,
+            sym_constraint.predicate.value,
+            sym_constraint.object_role_general, sym_constraint.object_role_specific,
             subject_source, object_source,
         )
 

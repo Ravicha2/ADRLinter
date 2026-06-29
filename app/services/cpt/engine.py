@@ -127,9 +127,8 @@ def check_change_triggered_predicates(
                 # Check if the changed FQN falls under this wildcard prefix
                 if not (changed_str == prefix or changed_str.startswith(prefix + ".")):
                     continue
-                # ponytail: BFS from changed FQN, not the package root.
                 # Package-root BFS finds dependencies through sibling modules
-                # (false negative).  For function-level FQNs that lack IMPORTS,
+                # For function-level FQNs that lack IMPORTS,
                 # walk up to enclosing module first.
                 relevant_subjects = [(changed.fqn, MatchStatus.WILDCARD)]
             else:
@@ -146,7 +145,16 @@ def check_change_triggered_predicates(
             for subject_fqn, subject_status in relevant_subjects:
                 subject_str = str(subject_fqn)
                 reachable = _reachable_nodes(subject_str, adjacency, kinds)
-                if not any(r == str(object_fqn) or r.startswith(str(object_fqn) + ".") for r in reachable for object_fqn, _ in matched_constraint.object_matches):
+                object_reachable = False
+                for object_fqn, _ in matched_constraint.object_matches:
+                    object_str = str(object_fqn)
+                    for reachable_object_str in reachable:
+                        if reachable_object_str == object_str or reachable_object_str.startswith(object_str + "."):
+                            object_reachable = True
+                            break
+                    if object_reachable:
+                        break
+                if not object_reachable:
                     highest_status = subject_status
                     for _, object_status in matched_constraint.object_matches:
                         if _PRIORITY[object_status] > _PRIORITY[highest_status]:
@@ -168,17 +176,17 @@ def detect(diff_result: DiffResult, adg: ADG) -> CPTResult:
 
     # filter self-loop constraints (subject == object), surface as informational
     self_loop_constraints: list[ConstraintEdge] = [
-        c for c in adg.constraint_edges if c.subject == c.object
+        constraint for constraint in adg.constraint_edges if constraint.subject == constraint.object
     ]
 
     if self_loop_constraints:
         log.warning(
             "detect: %d self-loop constraint(s) filtered: %s",
             len(self_loop_constraints),
-            [(c.adr_id, c.subject) for c in self_loop_constraints],
+            [(constraint.adr_id, constraint.subject) for constraint in self_loop_constraints],
         )
 
-    safe_edges = [c for c in adg.constraint_edges if c.subject != c.object]
+    safe_edges = [constraint for constraint in adg.constraint_edges if constraint.subject != constraint.object]
     safe_adg = ADG(nodes=adg.nodes, edges=adg.edges, constraint_edges=safe_edges)
     matched = match_constraints(safe_adg)
 
@@ -188,21 +196,22 @@ def detect(diff_result: DiffResult, adg: ADG) -> CPTResult:
 
     violations = resolve(all_violations)
 
-    active_requires: list[ConstraintEdge] = [
-        mc.constraint for mc in matched.values()
-        if mc.constraint.predicate.value.startswith("requires_")
-    ]
+    active_requires: list[ConstraintEdge] = []
+    for match_constraint in matched.values():
+        if match_constraint.constraint.predicate.value.startswith("requires_"):
+            active_requires.append(match_constraint.constraint)
     violations = suppress_outweighed_prohibits(violations, active_requires)
 
-    active_prohibits: list[ConstraintEdge] = [
-        mc.constraint for mc in matched.values()
-        if mc.constraint.predicate.value.startswith("prohibits_")
-    ]
+    active_prohibits: list[ConstraintEdge] = []
+    for match_constraint in matched.values():
+        if match_constraint.constraint.predicate.value.startswith("prohibits_"):
+            active_prohibits.append(match_constraint.constraint)
     violations = suppress_outweighed_requires(violations, active_prohibits)
 
-    orphans: list[ConstraintEdge] = [
-        c for c in adg.constraint_edges if id(c) not in matched
-    ]
+    orphans: list[ConstraintEdge] = []
+    for constraint in adg.constraint_edges:
+        if id(constraint) not in matched:
+            orphans.append(constraint)
 
     return CPTResult(violations=violations, orphans=orphans, self_loop_constraints=self_loop_constraints)
 

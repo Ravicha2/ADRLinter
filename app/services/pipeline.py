@@ -26,10 +26,6 @@ from services.models import ADG, CommitDiff, ConstraintEdge, DiffResult, Symboli
 from services.resolver import MatchStatus
 
 
-# ---------------------------------------------------------------------------
-# Specificity computation (fixes the 0.0 bug)
-# ---------------------------------------------------------------------------
-
 def pattern_specificity(pattern: str) -> float:
     """Compute specificity for a constraint pattern string.
 
