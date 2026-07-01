@@ -1,126 +1,172 @@
 <mxfile host="Electron">
   <diagram name="CPT Flow" id="0">
-    <mxGraphModel dx="1334" dy="887" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="1334" dy="880" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
         <mxCell id="title" parent="1" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontColor=#333333;" value="&lt;b&gt;CPT (Contradiction Path Traversal) Pipeline&lt;/b&gt;" vertex="1">
-          <mxGeometry height="40" width="600" x="300" y="20" as="geometry" />
+          <mxGeometry height="40" width="600" x="400" y="20" as="geometry" />
         </mxCell>
         <mxCell id="input_container" parent="1" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" value="INPUTS" vertex="1">
           <mxGeometry height="560" width="220" x="40" y="80" as="geometry" />
         </mxCell>
-        <mxCell id="input_diff" parent="input_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;DiffResult&lt;/b&gt;&#xa;changed_fqns&#xa;(added / modified / deleted)" vertex="1">
-          <mxGeometry height="70" width="160" x="30" y="40" as="geometry" />
+        <mxCell id="input_diff" parent="input_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;CommitDiff&lt;/b&gt;&#xa;changed_files + contents&#xa;(added / modified / deleted / renamed)" vertex="1">
+          <mxGeometry height="80" width="160" x="30" y="35" as="geometry" />
         </mxCell>
         <mxCell id="input_adg" parent="input_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;ADG&lt;/b&gt;&#xa;nodes (FQNNode)&#xa;edges (IMPORTS, CALLS, ...)&#xa;constraint_edges (ADR rules)" vertex="1">
-          <mxGeometry height="90" width="160" x="30" y="250" as="geometry" />
+          <mxGeometry height="100" width="160" x="30" y="200" as="geometry" />
         </mxCell>
         <mxCell id="input_neo4j" parent="input_container" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#333333;" value="&lt;b&gt;Neo4j&lt;/b&gt;&#xa;GraphStore&#xa;(persistent ADG)" vertex="1">
-          <mxGeometry height="70" width="160" x="30" y="370" as="geometry" />
+          <mxGeometry height="80" width="160" x="30" y="400" as="geometry" />
         </mxCell>
         <mxCell id="process_container" parent="1" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" value="PROCESS" vertex="1">
-          <mxGeometry height="700" width="550" x="320" y="80" as="geometry" />
+          <mxGeometry height="780" width="620" x="320" y="80" as="geometry" />
         </mxCell>
-        <mxCell id="step1" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="&lt;b&gt;1. bfs_neighborhood&lt;/b&gt;&#xa;k-hop BFS from changed FQNs&#xa;through ADG edges&#xa;(k = 3 default)" vertex="1">
-          <mxGeometry height="70" width="240" x="150" y="40" as="geometry" />
+        <mxCell id="proc_diff" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;1. process_diff&lt;/b&gt;&#xa;services/cpt/diff_processor.py&#xa;→ ChangedFQN[]" vertex="1">
+          <mxGeometry height="70" width="240" x="40" y="40" as="geometry" />
         </mxCell>
-        <mxCell id="step2" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="&lt;b&gt;2. match_constraints&lt;/b&gt;&#xa;Match constraint subject/object&#xa;patterns against neighborhood FQNs&#xa;(exact / wildcard / segment)" vertex="1">
-          <mxGeometry height="100" width="240" x="150" y="180" as="geometry" />
+        <mxCell id="proc_augment" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;1b. augment_adg&lt;/b&gt;&#xa;mutate ADG with new/modified&#xa;nodes + edges + CONTAINS" vertex="1">
+          <mxGeometry height="70" width="240" x="40" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="step3" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;3.1. check_structural_predicates&lt;/b&gt;&lt;br&gt;PROHIBITS_DEPENDENCY&lt;br&gt;PROHIBITS_IMPLEMENTATION&lt;br&gt;→ check if forbidden path EXISTS" vertex="1">
-          <mxGeometry height="130" width="230" x="20" y="360" as="geometry" />
+        <mxCell id="proc_match" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="&lt;b&gt;2. match_constraints&lt;/b&gt;&#xa;Full ADG matching&#xa;subject/object patterns vs all FQNs&#xa;(exact / wildcard / segment)" vertex="1">
+          <mxGeometry height="90" width="260" x="320" y="60" as="geometry" />
         </mxCell>
-        <mxCell id="step5" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;4. resolve&lt;/b&gt;&lt;br&gt;Deduplicate violations&lt;br&gt;Parent-covers-child suppression&lt;br&gt;Require vs Prohibit by specificity" vertex="1">
-          <mxGeometry height="80" width="230" x="80" y="580" as="geometry" />
+        <mxCell id="proc_struct" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;3.1 check_structural_predicates&lt;/b&gt;&#xa;PROHIBITS_DEPENDENCY&#xa;PROHIBITS_IMPLEMENTATION&#xa;→ full-ADG BFS (CONTAINS, IMPORTS, CALLS, INHERITS)" vertex="1">
+          <mxGeometry height="110" width="250" x="40" y="290" as="geometry" />
         </mxCell>
-        <mxCell id="step4" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;3.2. check_change_triggered_predicates&lt;/b&gt;&lt;br&gt;REQUIRES_DEPENDENCY&lt;br&gt;REQUIRES_IMPLEMENTATION&lt;br&gt;→ check if required path MISSING" vertex="1">
-          <mxGeometry height="130" width="230" x="310" y="360" as="geometry" />
+        <mxCell id="proc_change" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;3.2 check_change_triggered_predicates&lt;/b&gt;&#xa;REQUIRES_DEPENDENCY&#xa;REQUIRES_IMPLEMENTATION&#xa;→ per changed_fqn, full-ADG BFS" vertex="1">
+          <mxGeometry height="110" width="250" x="340" y="290" as="geometry" />
         </mxCell>
-        <mxCell id="e5" edge="1" parent="process_container" source="step2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="step4" value="">
+        <mxCell id="proc_resolve" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;4. resolve&lt;/b&gt;&#xa;Deduplicate&#xa;Parent-covers-child suppression&#xa;Specificity-weight conflicts (prohibit ↔ require)" vertex="1">
+          <mxGeometry height="90" width="240" x="40" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="proc_supp_pro" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;5. suppress_outweighed_prohibits&lt;/b&gt;&#xa;Drop prohibits when higher-specificity&#xa;requires on same object exists" vertex="1">
+          <mxGeometry height="70" width="240" x="340" y="470" as="geometry" />
+        </mxCell>
+        <mxCell id="proc_supp_req" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;6. suppress_outweighed_requires&lt;/b&gt;&#xa;Drop requires when higher-specificity&#xa;OR newer prohibits on same object exists" vertex="1">
+          <mxGeometry height="70" width="280" x="320" y="590" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_diff_match" edge="1" parent="process_container" source="proc_diff" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="proc_match">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="270" y="330" />
-              <mxPoint x="425" y="330" />
+              <mxPoint x="160" y="127" />
+              <mxPoint x="320" y="127" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e5_label" connectable="0" parent="e5" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;fontSize=10;" value="matched constraints" vertex="1">
-          <mxGeometry relative="1" x="0.3" y="-5" as="geometry" />
+        <mxCell id="ep_aug_match" edge="1" parent="process_container" source="proc_augment" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="proc_match">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="160" y="127" />
+              <mxPoint x="320" y="127" />
+            </Array>
+          </mxGeometry>
         </mxCell>
-        <mxCell id="e7" edge="1" parent="process_container" source="step4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="step5" value="violations">
+        <mxCell id="ep_match_struct" edge="1" parent="process_container" source="proc_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="proc_struct" value="matched constraints">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="270" />
+              <mxPoint x="165" y="270" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ep_match_change" edge="1" parent="process_container" source="proc_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="proc_change" value="matched constraints">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="450" y="270" />
+              <mxPoint x="465" y="270" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ep_struct_resolve" edge="1" parent="process_container" source="proc_struct" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="proc_resolve" value="violations">
           <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_change_resolve" edge="1" parent="process_container" source="proc_change" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="proc_resolve" value="violations">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="465" y="440" />
+              <mxPoint x="160" y="440" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="ep_resolve_supp_pro" edge="1" parent="process_container" source="proc_resolve" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="proc_supp_pro" value="violations">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="ep_resolve_req" edge="1" parent="process_container" source="proc_resolve" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="proc_supp_req" value="violations">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="160" y="625" />
+            </Array>
+            <mxPoint x="210" y="720" as="targetPoint" />
+          </mxGeometry>
         </mxCell>
         <mxCell id="output_container" parent="1" style="swimlane;startSize=30;fillColor=#d5e8d4;strokeColor=#82b366;fontStyle=1;" value="OUTPUTS" vertex="1">
-          <mxGeometry height="560" width="240" x="960" y="80" as="geometry" />
+          <mxGeometry height="560" width="240" x="1000" y="80" as="geometry" />
         </mxCell>
         <mxCell id="out_violations" parent="output_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;violations&lt;/b&gt;&#xa;List[Violation]&#xa;(constraint, evidence,&#xa;matched_fqn, match_status)" vertex="1">
-          <mxGeometry height="80" width="160" x="40" y="50" as="geometry" />
+          <mxGeometry height="90" width="160" x="40" y="430" as="geometry" />
         </mxCell>
-        <mxCell id="out_orphans" parent="output_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="&lt;b&gt;orphans&lt;/b&gt;&#xa;List[ConstraintEdge]&#xa;(constraints with no&#xa;matching FQNs in neighborhood)" vertex="1">
-          <mxGeometry height="80" width="160" x="60" y="170" as="geometry" />
+        <mxCell id="out_orphans" parent="output_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;" value="&lt;b&gt;orphans&lt;/b&gt;&#xa;List[ConstraintEdge]&#xa;(constraints with no&#xa;matching FQNs in ADG)" vertex="1">
+          <mxGeometry height="90" width="160" x="40" y="60" as="geometry" />
         </mxCell>
-        <mxCell id="out_neighborhood" parent="output_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;neighborhood&lt;/b&gt;&#xa;Set[FQN]&#xa;(all FQNs within k hops&#xa;of changed FQNs)" vertex="1">
-          <mxGeometry height="80" width="160" x="60" y="280" as="geometry" />
+        <mxCell id="out_selfloop" parent="output_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="&lt;b&gt;self_loop_constraints&lt;/b&gt;&#xa;List[ConstraintEdge]&#xa;(subject == object,&#xa;informational only)" vertex="1">
+          <mxGeometry height="90" width="160" x="40" y="200" as="geometry" />
         </mxCell>
-        <mxCell id="e1" edge="1" parent="1" source="input_diff" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="step1" value="">
+        <mxCell id="e1" edge="1" parent="1" source="input_diff" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="proc_diff">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e1_label" connectable="0" parent="e1" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;fontSize=10;" value="changed_fqns" vertex="1">
+        <mxCell id="e1_label" connectable="0" parent="e1" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;fontSize=10;" value="CommitDiff" vertex="1">
           <mxGeometry relative="1" x="-0.2" y="-10" as="geometry" />
         </mxCell>
-        <mxCell id="e2" edge="1" parent="1" source="input_adg" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="step1" value="">
+        <mxCell id="e2" edge="1" parent="1" source="input_adg" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="proc_augment">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="300" y="375" />
-              <mxPoint x="300" y="165" />
+              <mxPoint x="300" y="330" />
+              <mxPoint x="300" y="275" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e2_label" connectable="0" parent="e2" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;fontSize=10;" value="adg.edges" vertex="1">
+        <mxCell id="e2_label" connectable="0" parent="e2" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;fontSize=10;" value="adg" vertex="1">
           <mxGeometry relative="1" x="0.1" y="10" as="geometry">
             <mxPoint x="10" y="23" as="offset" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="e2a" edge="1" parent="1" source="input_neo4j" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="input_adg" value="">
+        <mxCell id="e2a" edge="1" parent="1" source="input_neo4j" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=0;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="input_adg">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
         <mxCell id="e2a_label" connectable="0" parent="e2a" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;fontSize=10;" value="load" vertex="1">
-          <mxGeometry relative="1" x="0" y="5" as="geometry" />
+          <mxGeometry relative="1" y="5" as="geometry" />
         </mxCell>
-        <mxCell id="e3" edge="1" parent="1" source="step1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="step2" value="neighborhood FQNs + edges">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e4" edge="1" parent="1" source="step2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="step3" value="matched constraints">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e6" edge="1" parent="1" source="step3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="step5" value="violations">
-          <mxGeometry relative="1" x="0.3659" as="geometry">
-            <mxPoint y="-1" as="offset" />
-            <Array as="points" />
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="e8" edge="1" parent="1" source="step5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.25;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="out_violations" value="violations">
-          <mxGeometry relative="1" as="geometry">
+        <mxCell id="e4" edge="1" parent="1" source="proc_supp_req" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="out_violations" value="violations">
+          <mxGeometry relative="1" x="0.5556" y="5" as="geometry">
+            <mxPoint as="offset" />
             <Array as="points">
-              <mxPoint x="900" y="680" />
-              <mxPoint x="900" y="170" />
+              <mxPoint x="940" y="705" />
+              <mxPoint x="940" y="555" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e9" edge="1" parent="1" source="step2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="out_orphans" value="orphans">
+        <mxCell id="e5" edge="1" parent="1" source="proc_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="out_orphans" value="orphans">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="850" y="290" />
+              <mxPoint x="1000" y="185" />
+              <mxPoint x="1000" y="185" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e10" edge="1" parent="1" source="step1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="out_neighborhood" value="neighborhood">
+        <mxCell id="e6" edge="1" parent="1" source="proc_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="out_selfloop" value="self_loops">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="590" y="210" />
-              <mxPoint x="940" y="210" />
-              <mxPoint x="940" y="400" />
+              <mxPoint x="990" y="185" />
+              <mxPoint x="990" y="325" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="XlS1vlY7033d9jYcMSSE-1" edge="1" parent="1" source="proc_supp_pro" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;curved=0;" target="out_violations">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="940" y="585" />
+              <mxPoint x="940" y="555" />
             </Array>
           </mxGeometry>
         </mxCell>

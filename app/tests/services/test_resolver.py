@@ -1,7 +1,4 @@
-"""Tests for the resolver module: NameResolver, MatchReport, fqn_matches_pattern, compute_specificity.
-
-Boundary tests consolidating logic previously in matching.py and treesitter.py.
-"""
+"""Tests for the resolver module: NameResolver, fqn_matches_pattern, MatchStatus."""
 
 from __future__ import annotations
 
@@ -9,10 +6,8 @@ import pytest
 
 from services.fqn import FQN
 from services.resolver import (
-    MatchReport,
     MatchStatus,
     NameResolver,
-    compute_specificity,
     fqn_matches_pattern,
 )
 
@@ -144,63 +139,7 @@ class TestNameResolverResolve:
 
 
 # ===========================================================================
-# 6. NameResolver.match: pattern matching with specificity
-# ===========================================================================
-
-
-class TestNameResolverMatch:
-    def test_exact_match(self, resolver: NameResolver) -> None:
-        report = resolver.match("app.auth.middleware")
-        assert report.status == MatchStatus.EXACT
-        assert report.specificity == 4.0  # depth 3 + exact bonus 1
-
-    def test_wildcard_expansion(self, resolver: NameResolver) -> None:
-        report = resolver.match("app.api.*")
-        assert report.status == MatchStatus.WILDCARD
-        assert report.specificity == 2.0  # depth 2 (.* stripped), wildcard no bonus
-        matched_fqns = [fqn for fqn, _ in report.matched]
-        assert FQN.from_dotted("app.api.users") in matched_fqns
-        assert FQN.from_dotted("app.api.orders") in matched_fqns
-
-    def test_orphan(self, resolver: NameResolver) -> None:
-        report = resolver.match("app.db.postgres")
-        assert report.status == MatchStatus.NO_MATCH
-        assert report.specificity == 0.0
-        assert report.matched == ()
-
-    def test_specificity_ordering(self, resolver: NameResolver) -> None:
-        exact_report = resolver.match("app.api.users")
-        wildcard_report = resolver.match("app.api.*")
-        shallow_report = resolver.match("app")
-        # exact("app.api.users") = depth 3 + 1.0 = 4.0
-        # wildcard("app.api.*") = depth 2 (.* stripped) = 2.0
-        # exact("app") = depth 1 + 1.0 = 2.0
-        assert exact_report.specificity > wildcard_report.specificity
-        assert wildcard_report.specificity >= shallow_report.specificity
-
-
-# ===========================================================================
-# 7. compute_specificity
-# ===========================================================================
-
-
-class TestComputeSpecificity:
-    def test_exact_specificity(self) -> None:
-        assert compute_specificity("app.api.users", MatchStatus.EXACT) == 4.0
-
-    def test_wildcard_specificity(self) -> None:
-        # .* is stripped before depth counting: "app.api" has depth 2
-        assert compute_specificity("app.api.*", MatchStatus.WILDCARD) == 2.0
-
-    def test_no_match_specificity(self) -> None:
-        assert compute_specificity("app.db.postgres", MatchStatus.NO_MATCH) == 0.0
-
-    def test_shallow_exact(self) -> None:
-        assert compute_specificity("app", MatchStatus.EXACT) == 2.0
-
-
-# ===========================================================================
-# 8. MatchStatus enum
+# 6. MatchStatus enum
 # ===========================================================================
 
 

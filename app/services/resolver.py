@@ -1,30 +1,19 @@
-"""NameResolver: consolidated name resolution and pattern matching.
+"""NameResolver: bare-name resolution via suffix index.
 
-Centralizes bare-name resolution (suffix index), pattern matching (exact/wildcard),
-and specificity scoring. Replaces the scattered matching.py, resolve_call/resolve_base_class
-in treesitter.py, and duplicated fqn_matches_pattern in engine.py.
+Also exposes fqn_matches_pattern and MatchStatus for the CPT engine.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from enum import Enum
 
 from services.fqn import FQN
-from services.models import FQNNode
 
 
 class MatchStatus(Enum):
     EXACT = "exact"
     WILDCARD = "wildcard"
     NO_MATCH = "no_match"
-
-
-@dataclass(frozen=True)
-class MatchReport:
-    status: MatchStatus
-    matched: tuple[tuple[FQN, MatchStatus], ...] = ()
-    specificity: float = 0.0
 
 
 def fqn_matches_pattern(fqn: FQN, pattern: str) -> MatchStatus:
@@ -38,35 +27,14 @@ def fqn_matches_pattern(fqn: FQN, pattern: str) -> MatchStatus:
     return MatchStatus.NO_MATCH
 
 
-def compute_specificity(pattern: str, status: MatchStatus) -> float:
-    """Compute specificity from pattern depth and match status.
-
-    Strips .* wildcard suffix before counting depth so 'app.routes.*'
-    has depth 2, not 3.
-    """
-    if status == MatchStatus.NO_MATCH:
-        return 0.0
-    is_wildcard = pattern.endswith(".*")
-    clean = pattern[:-2] if is_wildcard else pattern
-    depth = len(clean.rstrip(".").split("."))
-    return float(depth) + (1.0 if status == MatchStatus.EXACT else 0.0)
-
-
-def _status_priority(status: MatchStatus) -> int:
-    return {MatchStatus.EXACT: 2, MatchStatus.WILDCARD: 1}.get(status, 0)
-
-
 class NameResolver:
-    """Suffix-indexed name resolver and pattern matcher.
+    """Suffix-indexed name resolver.
 
-    Build once from known FQNs, then use for:
-    - resolve(): O(1) bare/dotted name lookup (parse time)
-    - match(): pattern matching with specificity (merge/detection time)
-    """ 
+    Build once from known FQNs, then use resolve() for O(1) bare/dotted name lookup.
+    """
 
     def __init__(self, fqns: set[FQN]):
         self._fqns = fqns
-        # suffix index for lookup, first match on ambiguity
         self._suffix_index: dict[str, list[FQN]] = {}
         for fqn in fqns:
             parts = fqn.parts
@@ -83,27 +51,3 @@ class NameResolver:
         if matches:
             return matches[0]
         return None
-
-    def match(self, pattern: str, candidates: set[FQN] | None = None) -> MatchReport:
-        """Match a pattern against known FQNs, returning status, matches, and specificity."""
-        pool = candidates or self._fqns
-        matches: list[tuple[FQN, MatchStatus]] = []
-        for fqn in pool:
-            status = fqn_matches_pattern(fqn, pattern)
-            if status != MatchStatus.NO_MATCH:
-                matches.append((fqn, status))
-
-        if not matches:
-            return MatchReport(status=MatchStatus.NO_MATCH, matched=(), specificity=0.0)
-
-        best = max(matches, key=lambda x: _status_priority(x[1]))[1]
-        matched = tuple(sorted(
-            [(fqn, s) for fqn, s in matches if s == best],
-            key=lambda x: str(x[0]),
-        ))
-
-        return MatchReport(
-            status=best,
-            matched=matched,
-            specificity=compute_specificity(pattern, best),
-        )

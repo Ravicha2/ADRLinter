@@ -1,6 +1,6 @@
 <mxfile host="Electron">
   <diagram name="Seed Ingestion" id="0">
-    <mxGraphModel dx="1868" dy="1242" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+    <mxGraphModel dx="1557" dy="1027" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
@@ -11,19 +11,19 @@
           <mxGeometry height="50" width="240" x="680" y="80" as="geometry" />
         </mxCell>
         <mxCell id="step1_container" parent="1" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=13;fontStyle=1" value="Step 1: Parse Repository" vertex="1">
-          <mxGeometry height="320" width="340" x="200" y="160" as="geometry" />
+          <mxGeometry height="320" width="350" x="100" y="160" as="geometry" />
         </mxCell>
         <mxCell id="ts" parent="step1_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/adg/treesitter.py&#xa;parse_repo()" vertex="1">
-          <mxGeometry height="50" width="160" x="120" y="40" as="geometry" />
+          <mxGeometry height="50" width="180" x="80" y="40" as="geometry" />
         </mxCell>
         <mxCell id="pass1" parent="step1_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10" value="Pass 1: Module Discovery&#xa;(.py files → MODULE nodes)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="120" as="geometry" />
+          <mxGeometry height="50" width="150" x="20" y="120" as="geometry" />
         </mxCell>
         <mxCell id="pass2" parent="step1_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10" value="Pass 2: Definition Extraction&#xa;(classes / functions → nodes)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="185" as="geometry" />
+          <mxGeometry height="50" width="150" x="20" y="185" as="geometry" />
         </mxCell>
-        <mxCell id="pass3" parent="step1_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10" value="Pass 3: Relationship Resolution&#xa;(IMPORTS / CALLS / INHERITS)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="250" as="geometry" />
+        <mxCell id="pass3" parent="step1_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#6c8ebf;fontSize=10" value="Pass 3: Relationship Resolution&#xa;(IMPORTS / CALLS / INHERITS)&#xa;+ synthetic CONTAINS edges" vertex="1">
+          <mxGeometry height="60" width="150" x="20" y="250" as="geometry" />
         </mxCell>
         <mxCell id="adg_raw" parent="step1_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1" value="ADG (raw)&#xa;FQNNode[] + structural Edge[]" vertex="1">
           <mxGeometry height="50" width="130" x="190" y="185" as="geometry" />
@@ -31,197 +31,211 @@
         <mxCell id="e_ts_pass1" edge="1" parent="step1_container" source="ts" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;" target="pass1">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="200" y="100" />
-              <mxPoint x="90" y="100" />
+              <mxPoint x="170" y="100" />
+              <mxPoint x="95" y="100" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_pass1_pass2" edge="1" parent="step1_container" source="pass1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="pass2" value="">
+        <mxCell id="e_pass1_pass2" edge="1" parent="step1_container" source="pass1" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="pass2">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_pass2_pass3" edge="1" parent="step1_container" source="pass2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="pass3" value="">
+        <mxCell id="e_pass2_pass3" edge="1" parent="step1_container" source="pass2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="pass3">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_pass2_adg" edge="1" parent="step1_container" source="pass2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="adg_raw" value="">
+        <mxCell id="e_pass2_adg" edge="1" parent="step1_container" source="pass2" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="adg_raw">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_pass3_adg" edge="1" parent="step1_container" source="pass3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="adg_raw" value="">
+        <mxCell id="e_pass3_adg" edge="1" parent="step1_container" source="pass3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="adg_raw">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="255" y="275" />
+              <mxPoint x="255" y="280" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="step2_container" parent="1" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;fontStyle=1" value="Step 2: Extract ADR Constraints" vertex="1">
-          <mxGeometry height="320" width="340" x="630" y="160" as="geometry" />
+        <mxCell id="step2_container" parent="1" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=13;fontStyle=1" value="Step 2: ADR Constraints → Symbolic Constraint" vertex="1">
+          <mxGeometry height="320" width="340" x="500" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="adr_pipeline" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/extract/pipeline.py&#xa;extract_all_adrs()" vertex="1">
-          <mxGeometry height="50" width="160" x="90" y="40" as="geometry" />
+        <mxCell id="adr_pipeline" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/extract/engine.py&#xa;ADRExtractor" vertex="1">
+          <mxGeometry height="50" width="180" x="80" y="40" as="geometry" />
         </mxCell>
         <mxCell id="adr_discover" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10" value="ADR File Discovery&#xa;(adr_dir/*.md)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="120" as="geometry" />
+          <mxGeometry height="50" width="150" x="20" y="120" as="geometry" />
         </mxCell>
-        <mxCell id="adr_llm" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10" value="LLM Extraction&#xa;(langextract + prompt)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="185" as="geometry" />
+        <mxCell id="adr_llm" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10" value="LLM Extraction&#xa;(langextract + prompt)&#xa;package_context" vertex="1">
+          <mxGeometry height="60" width="150" x="20" y="185" as="geometry" />
         </mxCell>
-        <mxCell id="adr_parse" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10" value="Constraint Parsing&#xa;(subject, predicate, object)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="250" as="geometry" />
+        <mxCell id="adr_parse" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10" value="Constraint Parsing&#xa;SymbolicConstraint[]&#xa;Replace/Supersede rule" vertex="1">
+          <mxGeometry height="60" width="150" x="20" y="250" as="geometry" />
         </mxCell>
-        <mxCell id="constraints_out" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1" value="ConstraintEdge[]&#xa;+ justification, adr_id" vertex="1">
+        <mxCell id="constraints_out" parent="step2_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1" value="SymbolicConstraint[]&#xa;+ justification, adr_id" vertex="1">
           <mxGeometry height="50" width="130" x="190" y="185" as="geometry" />
         </mxCell>
         <mxCell id="e_pipe_disc" edge="1" parent="step2_container" source="adr_pipeline" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="adr_discover">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_disc_llm" edge="1" parent="step2_container" source="adr_discover" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="adr_llm" value="">
+        <mxCell id="e_disc_llm" edge="1" parent="step2_container" source="adr_discover" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="adr_llm">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_llm_parse" edge="1" parent="step2_container" source="adr_llm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="adr_parse" value="">
+        <mxCell id="e_llm_parse" edge="1" parent="step2_container" source="adr_llm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="adr_parse">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_llm_cons" edge="1" parent="step2_container" source="adr_llm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="constraints_out" value="">
+        <mxCell id="e_llm_cons" edge="1" parent="step2_container" source="adr_llm" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="constraints_out">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_parse_cons" edge="1" parent="step2_container" source="adr_parse" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="constraints_out" value="">
+        <mxCell id="e_parse_cons" edge="1" parent="step2_container" source="adr_parse" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="constraints_out">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="255" y="275" />
+              <mxPoint x="255" y="280" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="step3_container" parent="1" style="swimlane;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1" value="Step 3: Merge" vertex="1">
-          <mxGeometry height="320" width="340" x="420" y="570" as="geometry" />
+        <mxCell id="step3_container" parent="1" style="swimlane;startSize=30;fillColor=#e1d5e7;strokeColor=#9673a6;fontSize=13;fontStyle=1" value="Step 3: Symbolic Constraint → Constraint Edges" vertex="1">
+          <mxGeometry height="320" width="340" x="900" y="160" as="geometry" />
         </mxCell>
-        <mxCell id="merge_fn" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/adg/merge.py&#xa;merge_constraints()" vertex="1">
-          <mxGeometry height="50" width="160" x="90" y="40" as="geometry" />
+        <mxCell id="sym_resolver" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/adg/symbolic_resolver.py&#xa;SymbolicResolver" vertex="1">
+          <mxGeometry height="50" width="200" x="70" y="40" as="geometry" />
         </mxCell>
-        <mxCell id="external_nodes" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10" value="Add External Nodes&#xa;(unresolved imports)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="120" as="geometry" />
+        <mxCell id="get_candidates" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10" value="General Match&#xa;(role_general → candidates)" vertex="1">
+          <mxGeometry height="50" width="150" x="20" y="120" as="geometry" />
         </mxCell>
-        <mxCell id="fqn_match" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10" value="FQN Matching&#xa;(match_fqn + specificity)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="185" as="geometry" />
+        <mxCell id="contains_walk" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10" value="CONTAINS Walk&#xa;+ specific narrowing" vertex="1">
+          <mxGeometry height="50" width="150" x="20" y="185" as="geometry" />
         </mxCell>
-        <mxCell id="orphan_res" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10" value="Orphan Resolution&#xa;(create EXTERNAL for orphans)" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="250" as="geometry" />
+        <mxCell id="substring_fb" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9673a6;fontSize=10" value="Substring Fallback&#xa;(suffix index lookup)" vertex="1">
+          <mxGeometry height="50" width="150" x="20" y="250" as="geometry" />
         </mxCell>
-        <mxCell id="merged_adg" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1" value="Merged ADG&#xa;nodes + edges + constraint_edges" vertex="1">
-          <mxGeometry height="50" width="130" x="190" y="185" as="geometry" />
+        <mxCell id="resolved_out" parent="step3_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1" value="Resolved ConstraintEdge[]&#xa;subject/object = concrete FQN" vertex="1">
+          <mxGeometry height="50" width="130" x="200" y="185" as="geometry" />
         </mxCell>
-        <mxCell id="e_merge_ext" edge="1" parent="step3_container" source="merge_fn" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="external_nodes">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e_ext_fqn" edge="1" parent="step3_container" source="external_nodes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="fqn_match" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e_fqn_orph" edge="1" parent="step3_container" source="fqn_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="orphan_res" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e_fqn_merged" edge="1" parent="step3_container" source="fqn_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="merged_adg" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e_orph_merged" edge="1" parent="step3_container" source="orphan_res" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.5;entryY=1;entryDx=0;entryDy=0;" target="merged_adg" value="">
+        <mxCell id="e_sym_candidates" edge="1" parent="step3_container" source="sym_resolver" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="get_candidates">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="255" y="275" />
+              <mxPoint x="170" y="100" />
+              <mxPoint x="95" y="100" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="step4_container" parent="1" style="swimlane;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;fontStyle=1" value="Step 4: Persist to Neo4j" vertex="1">
-          <mxGeometry height="320" width="340" x="900" y="570" as="geometry" />
+        <mxCell id="e_candidates_contains" edge="1" parent="step3_container" source="get_candidates" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="contains_walk">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="graphstore" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/graph/connector.py&#xa;GraphStore" vertex="1">
-          <mxGeometry height="50" width="160" x="90" y="50" as="geometry" />
+        <mxCell id="e_contains_fb" edge="1" parent="step3_container" source="contains_walk" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="substring_fb">
+          <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="schema" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=10" value="create_schema()&#xa;(fqn unique, file_path index)" vertex="1">
+        <mxCell id="e_fb_resolved" edge="1" parent="step3_container" source="substring_fb" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="resolved_out">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="180" y="275" />
+              <mxPoint x="180" y="210" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="step4_container" parent="1" style="swimlane;startSize=30;fillColor=#ffe6cc;strokeColor=#d79b00;fontSize=13;fontStyle=1" value="Step 4: Merge + Specificity" vertex="1">
+          <mxGeometry height="320" width="340" x="270" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="merge_fn" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/adg/merge.py&#xa;merge_constraints()" vertex="1">
+          <mxGeometry height="50" width="180" x="80" y="40" as="geometry" />
+        </mxCell>
+        <mxCell id="external_nodes" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10" value="Add External Nodes&#xa;(unresolved imports → EXTERNAL)" vertex="1">
+          <mxGeometry height="50" width="150" x="20" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="fqn_match" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10" value="FQN Matching" vertex="1">
+          <mxGeometry height="50" width="150" x="20" y="185" as="geometry" />
+        </mxCell>
+        <mxCell id="specificity" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d79b00;fontSize=10" value="Specificity Assignment&#xa;services/pipeline.py&#xa;pattern_specificity()" vertex="1">
+          <mxGeometry height="60" width="150" x="20" y="250" as="geometry" />
+        </mxCell>
+        <mxCell id="merged_adg" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1" value="Merged ADG&#xa;nodes + edges + ConstraintEdge[]&#xa;+ specificity" vertex="1">
+          <mxGeometry height="60" width="130" x="203" y="180" as="geometry" />
+        </mxCell>
+        <mxCell id="e_merge_ext" edge="1" parent="step4_container" source="merge_fn" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="external_nodes">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_ext_fqn" edge="1" parent="step4_container" source="external_nodes" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="fqn_match">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_fqn_spec" edge="1" parent="step4_container" source="fqn_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="specificity">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_fqn_merged" edge="1" parent="step4_container" source="fqn_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="merged_adg">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_spec_merged" edge="1" parent="step4_container" source="specificity" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;" target="merged_adg">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="265" y="280" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="step5_container" parent="1" style="swimlane;startSize=30;fillColor=#f8cecc;strokeColor=#b85450;fontSize=13;fontStyle=1" value="Step 5: Persist to Neo4j" vertex="1">
+          <mxGeometry height="300" width="340" x="700" y="540" as="geometry" />
+        </mxCell>
+        <mxCell id="graphstore" parent="step5_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/graph/connector.py&#xa;GraphStore" vertex="1">
+          <mxGeometry height="50" width="180" x="80" y="50" as="geometry" />
+        </mxCell>
+        <mxCell id="schema" parent="step5_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=10" value="Create Schema" vertex="1">
           <mxGeometry height="50" width="140" x="20" y="120" as="geometry" />
         </mxCell>
-        <mxCell id="store_node" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=10" value="store_node()&#xa;(Module/Class/Function/Method/External)" vertex="1">
+        <mxCell id="store_node" parent="step5_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=10" value="Store Nodes" vertex="1">
           <mxGeometry height="50" width="140" x="20" y="185" as="geometry" />
         </mxCell>
-        <mxCell id="store_edge" parent="step4_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=10" value="store_edge() / store_constraint_edge()&#xa;(CONTAINS, CALLS, PROHIBITS_DEPENDENCY…)" vertex="1">
+        <mxCell id="store_edge" parent="step5_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#b85450;fontSize=10" value="Store edges and constraint edges" vertex="1">
           <mxGeometry height="50" width="140" x="20" y="250" as="geometry" />
         </mxCell>
-        <mxCell id="neo4j" parent="step4_container" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1" value="Neo4j&#xa;Graph Database" vertex="1">
-          <mxGeometry height="80" width="120" x="190" y="175" as="geometry" />
+        <mxCell id="neo4j" parent="step5_container" style="shape=cylinder3;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=11;fontStyle=1" value="Neo4j" vertex="1">
+          <mxGeometry height="80" width="120" x="200" y="175" as="geometry" />
         </mxCell>
-        <mxCell id="e_gs_schema" edge="1" parent="step4_container" source="graphstore" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="schema">
+        <mxCell id="e_gs_schema" edge="1" parent="step5_container" source="graphstore" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="schema">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="170" y="110" />
+              <mxPoint x="90" y="110" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="e_schema_node" edge="1" parent="step5_container" source="schema" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="store_node">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_schema_node" edge="1" parent="step4_container" source="schema" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="store_node" value="">
+        <mxCell id="e_node_edge" edge="1" parent="step5_container" source="store_node" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="store_edge">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_node_edge" edge="1" parent="step4_container" source="store_node" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="store_edge" value="">
+        <mxCell id="e_node_neo" edge="1" parent="step5_container" source="store_node" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="neo4j">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_node_neo" edge="1" parent="step4_container" source="store_node" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="neo4j" value="">
+        <mxCell id="e_edge_neo" edge="1" parent="step5_container" source="store_edge" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="neo4j">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_edge_neo" edge="1" parent="step4_container" source="store_edge" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.75;entryDx=0;entryDy=0;" target="neo4j" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="e_cli_step1" edge="1" parent="1" source="cli" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="step1_container" value="">
+        <mxCell id="e_cli_step1" edge="1" parent="1" source="cli" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="step1_container">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
               <mxPoint x="800" y="140" />
-              <mxPoint x="370" y="140" />
+              <mxPoint x="270" y="140" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_cli_step2" edge="1" parent="1" source="cli" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="step2_container" value="">
+        <mxCell id="e_cli_step2" edge="1" parent="1" source="cli" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="step2_container">
           <mxGeometry relative="1" as="geometry" />
         </mxCell>
-        <mxCell id="e_step1_step3" edge="1" parent="1" source="adg_raw" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.25;entryY=0;entryDx=0;entryDy=0;fontSize=10;" target="step3_container" value="ADG (raw)">
+        <mxCell id="e_step1_step4" edge="1" parent="1" source="adg_raw" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;" target="step4_container" value="ADG (raw)">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="590" y="370" />
-              <mxPoint x="590" y="520" />
-              <mxPoint x="505" y="520" />
+              <mxPoint x="355" y="450" />
+              <mxPoint x="440" y="450" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_step2_step3" edge="1" parent="1" source="HY0asBMMy4OHRoUjDalb-7" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0.75;entryY=0;entryDx=0;entryDy=0;fontSize=10;" target="step3_container" value="ConstraintEdge[]">
+        <mxCell id="e_step2_step3" edge="1" parent="1" source="constraints_out" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;" target="step3_container" value="SymbolicConstraint[]">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="e_step3_step4" edge="1" parent="1" source="resolved_out" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;fontSize=10;" target="step4_container" value="Resolved ConstraintEdge[]">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="1440" y="370" />
-              <mxPoint x="1440" y="520" />
-              <mxPoint x="675" y="520" />
+              <mxPoint x="1165" y="510" />
+              <mxPoint x="440" y="510" />
             </Array>
           </mxGeometry>
         </mxCell>
-        <mxCell id="e_step3_step4" edge="1" parent="1" source="step3_container" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;" target="step4_container" value="Merged ADG">
+        <mxCell id="e_step4_step5" edge="1" parent="1" source="step4_container" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;fontSize=10;" target="step5_container" value="Merged ADG">
           <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-2" parent="1" style="swimlane;startSize=30;fillColor=#60a917;strokeColor=#2D7600;fontSize=13;fontStyle=1;fontColor=#ffffff;" value="Step 2.5: Namining Resolution (in progress)" vertex="1">
-          <mxGeometry height="320" width="340" x="1080" y="160" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-3" parent="HY0asBMMy4OHRoUjDalb-2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontSize=11" value="services/matching&lt;div&gt;&lt;br/&gt;&lt;/div&gt;" vertex="1">
-          <mxGeometry height="50" width="160" x="90" y="40" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-4" parent="HY0asBMMy4OHRoUjDalb-2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10" value="get candidate name" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="120" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-5" parent="HY0asBMMy4OHRoUjDalb-2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#d6b656;fontSize=10" value="Naming resolution by LLM" vertex="1">
-          <mxGeometry height="50" width="140" x="20" y="185" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-7" parent="HY0asBMMy4OHRoUjDalb-2" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;fontSize=10;fontStyle=1" value="ConstraintEdge[]&#xa;+ justification, adr_id" vertex="1">
-          <mxGeometry height="50" width="130" x="190" y="185" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-8" edge="1" parent="HY0asBMMy4OHRoUjDalb-2" source="HY0asBMMy4OHRoUjDalb-3" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="HY0asBMMy4OHRoUjDalb-4">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-9" edge="1" parent="HY0asBMMy4OHRoUjDalb-2" source="HY0asBMMy4OHRoUjDalb-4" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=0.5;exitY=1;exitDx=0;exitDy=0;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="HY0asBMMy4OHRoUjDalb-5" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-11" edge="1" parent="HY0asBMMy4OHRoUjDalb-2" source="HY0asBMMy4OHRoUjDalb-5" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="HY0asBMMy4OHRoUjDalb-7" value="">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-13" edge="1" parent="1" source="constraints_out" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;entryX=0;entryY=0.25;entryDx=0;entryDy=0;" target="HY0asBMMy4OHRoUjDalb-2">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="HY0asBMMy4OHRoUjDalb-14" connectable="0" parent="HY0asBMMy4OHRoUjDalb-13" style="edgeLabel;html=1;align=center;verticalAlign=middle;resizable=0;points=[];" value="ConstraintEdge[]" vertex="1">
-          <mxGeometry relative="1" x="-0.1525" as="geometry">
-            <mxPoint as="offset" />
-          </mxGeometry>
         </mxCell>
       </root>
     </mxGraphModel>
