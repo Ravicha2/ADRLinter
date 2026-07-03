@@ -77,14 +77,11 @@ def _resolve_side(
     Returns (matched_nodes, match_source) where match_source is one of:
       "specific" | "general_wildcard" | "fallback" | "no_match"
     """
-    # Kind-agnostic search: LLM-generated role_specific may reference modules
-    # even when kinds exclude them, so search all nodes and verify kind after.
     general_matches = _general_match(role_general, adg.nodes)
 
     if general_matches:
-        # Walk all descendants and narrow by role_specific (kind-agnostic:
-        # LLM-generated role_specific may target modules even when kinds
-        # exclude them, so search all nodes).
+        # Walk all descendants and narrow by role_specific
+        # LLM-generated role_specific may target modules, so search all nodes.
         children = []
         for parent in general_matches:
             children.extend(_walk_contains(parent.fqn, adg.edges, adg.nodes))
@@ -94,8 +91,8 @@ def _resolve_side(
             if narrowed:
                 return narrowed, "specific"
 
-        # When specific narrowing fails, return only the shallowest (shortest
-        # FQN) match instead of the entire subtree. CPT walks CONTAINS at
+        # When specific narrowing fails, return only the shallowest (shortest FQN) match 
+        # instead of the entire subtree. CPT walks CONTAINS at
         # detection time, so pre-expanding just creates cross-product bloom.
         shallowest = min(general_matches, key=lambda node: len(str(node.fqn).split(".")))
         return [shallowest], "general_wildcard"
@@ -171,7 +168,7 @@ def resolve_symbolic_constraints(
             )
             continue
 
-        # ponytail: module nodes get wildcard suffix so CPT matches descendants;
+        # module nodes get wildcard suffix so CPT matches descendants;
         # non-module (class, function, external) stay exact.
         def _pattern(n: FQNNode) -> str:
             return str(n.fqn) + (".*" if n.kind == FQNKind.MODULE else "")

@@ -1,10 +1,10 @@
 <mxfile host="Electron">
   <diagram name="CPT Flow" id="0">
-    <mxGraphModel dx="1334" dy="880" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
+    <mxGraphModel dx="1698" dy="1120" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1400" pageHeight="1000" math="0" shadow="0">
       <root>
         <mxCell id="0" />
         <mxCell id="1" parent="0" />
-        <mxCell id="title" parent="1" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontColor=#333333;" value="&lt;b&gt;CPT (Contradiction Path Traversal) Pipeline&lt;/b&gt;" vertex="1">
+        <mxCell id="title" parent="1" style="text;html=1;align=center;verticalAlign=middle;fontSize=18;fontColor=#333333;" value="&lt;b&gt;CPT (Constraint Path Traversal) Pipeline&lt;/b&gt;" vertex="1">
           <mxGeometry height="40" width="600" x="400" y="20" as="geometry" />
         </mxCell>
         <mxCell id="input_container" parent="1" style="swimlane;startSize=30;fillColor=#dae8fc;strokeColor=#6c8ebf;fontStyle=1;" value="INPUTS" vertex="1">
@@ -20,7 +20,7 @@
           <mxGeometry height="80" width="160" x="30" y="400" as="geometry" />
         </mxCell>
         <mxCell id="process_container" parent="1" style="swimlane;startSize=30;fillColor=#fff2cc;strokeColor=#d6b656;fontStyle=1;" value="PROCESS" vertex="1">
-          <mxGeometry height="780" width="620" x="320" y="80" as="geometry" />
+          <mxGeometry height="680" width="640" x="320" y="80" as="geometry" />
         </mxCell>
         <mxCell id="proc_diff" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="&lt;b&gt;1. process_diff&lt;/b&gt;&#xa;services/cpt/diff_processor.py&#xa;→ ChangedFQN[]" vertex="1">
           <mxGeometry height="70" width="240" x="40" y="40" as="geometry" />
@@ -31,10 +31,10 @@
         <mxCell id="proc_match" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="&lt;b&gt;2. match_constraints&lt;/b&gt;&#xa;Full ADG matching&#xa;subject/object patterns vs all FQNs&#xa;(exact / wildcard / segment)" vertex="1">
           <mxGeometry height="90" width="260" x="320" y="60" as="geometry" />
         </mxCell>
-        <mxCell id="proc_struct" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="&lt;b&gt;3.1 check_structural_predicates&lt;/b&gt;&#xa;PROHIBITS_DEPENDENCY&#xa;PROHIBITS_IMPLEMENTATION&#xa;→ full-ADG BFS (CONTAINS, IMPORTS, CALLS, INHERITS)" vertex="1">
+        <mxCell id="proc_struct" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;align=left;" value="&lt;b&gt;3.1 check_structural_predicates&lt;/b&gt;&lt;br&gt;&lt;div style=&quot;&quot;&gt;&lt;span style=&quot;background-color: transparent; color: light-dark(rgb(0, 0, 0), rgb(255, 255, 255));&quot;&gt;- PROHIBIT_*&lt;/span&gt;&lt;/div&gt;&lt;div style=&quot;&quot;&gt;- Full ADG walk, prohibit pair must not reachable&lt;/div&gt;" vertex="1">
           <mxGeometry height="110" width="250" x="40" y="290" as="geometry" />
         </mxCell>
-        <mxCell id="proc_change" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="&lt;b&gt;3.2 check_change_triggered_predicates&lt;/b&gt;&#xa;REQUIRES_DEPENDENCY&#xa;REQUIRES_IMPLEMENTATION&#xa;→ per changed_fqn, full-ADG BFS" vertex="1">
+        <mxCell id="proc_change" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;align=left;" value="&lt;b&gt;3.2 check_change_triggered_predicates&lt;/b&gt;&lt;br&gt;- REQUIRES_*&lt;br&gt;&lt;div&gt;- per changed_fqn, full-ADG BFS&lt;/div&gt;" vertex="1">
           <mxGeometry height="110" width="250" x="340" y="290" as="geometry" />
         </mxCell>
         <mxCell id="proc_resolve" parent="process_container" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" value="&lt;b&gt;4. resolve&lt;/b&gt;&#xa;Deduplicate&#xa;Parent-covers-child suppression&#xa;Specificity-weight conflicts (prohibit ↔ require)" vertex="1">
@@ -157,8 +157,8 @@
         <mxCell id="e6" edge="1" parent="1" source="proc_match" style="edgeStyle=orthogonalEdgeStyle;rounded=1;orthogonalLoop=1;jettySize=auto;html=1;exitX=1;exitY=0.5;exitDx=0;exitDy=0;entryX=0;entryY=0.5;entryDx=0;entryDy=0;" target="out_selfloop" value="self_loops">
           <mxGeometry relative="1" as="geometry">
             <Array as="points">
-              <mxPoint x="990" y="185" />
-              <mxPoint x="990" y="325" />
+              <mxPoint x="920" y="185" />
+              <mxPoint x="920" y="325" />
             </Array>
           </mxGeometry>
         </mxCell>

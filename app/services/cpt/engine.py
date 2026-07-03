@@ -96,7 +96,7 @@ def check_structural_predicates(
             for object_fqn, object_status in matched_constraint.object_matches:
                 higher = subject_status if _PRIORITY[subject_status] >= _PRIORITY[object_status] else object_status
                 object_str = str(object_fqn)
-                if any(r == object_str or r.startswith(object_str + ".") for r in reachable):
+                if any(reachable_node == object_str or reachable_node.startswith(object_str + ".") for reachable_node in reachable):
                     violations.append(Violation(
                         constraint=matched_constraint.constraint,
                         changed_fqn=subject_fqn, 
