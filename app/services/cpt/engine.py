@@ -37,6 +37,7 @@ def _build_adjacency(edges: Iterable[Edge]) -> dict[str, list[Edge]]:
 
 
 def _reachable_nodes(start: str, adjacency: dict[str, list[Edge]], kinds: set[str]) -> set[str]:
+    """BFS: O(V+E)"""
     visited: set[str] = set()
     queue: deque[str] = deque([start])
 
@@ -53,6 +54,10 @@ def _reachable_nodes(start: str, adjacency: dict[str, list[Edge]], kinds: set[st
 
 
 def match_constraints(adg: ADG) -> dict[int, MatchedConstraint]:
+    """
+    match all constraint with all nodes O(c x n) 
+    TODO: do we need to check all constraints? optimize?
+    """
     matched: dict[int, MatchedConstraint] = {}
     for constraint in adg.constraint_edges:
         subject_matches: list[tuple[FQN, MatchStatus]] = []
@@ -79,7 +84,10 @@ def check_structural_predicates(
     matched_constraints: dict[int, MatchedConstraint],
     adjacency: dict[str, list[Edge]],
 ) -> list[Violation]:
-    """PROHIBITS_*: evaluate once per constraint, no changed_fqn needed."""
+    """
+    PROHIBITS_*: evaluate once per constraint, no changed_fqn needed.
+    TODO: cache BFS result, all prohibit can reuse same full graph reachability
+    """
     violations: list[Violation] = []
     for matched_constraint in matched_constraints.values():
         pred = matched_constraint.constraint.predicate
@@ -113,7 +121,10 @@ def check_change_triggered_predicates(
     adjacency: dict[str, list[Edge]],
     changed_fqns: list[ChangedFQN],
 ) -> list[Violation]:
-    """REQUIRES_*: evaluate per changed_fqn, pre-filtered by subject_matches."""
+    """
+    REQUIRES_*: evaluate per changed_fqn, pre-filtered by subject_matches.
+    TODO: 2-hops traversal?
+    """
     violations: list[Violation] = []
     for changed in changed_fqns:
         changed_str = str(changed.fqn)
@@ -186,7 +197,7 @@ def detect(diff_result: DiffResult, adg: ADG) -> CPTResult:
             [(constraint.adr_id, constraint.subject) for constraint in self_loop_constraints],
         )
 
-    safe_edges = [constraint for constraint in adg.constraint_edges if constraint.subject != constraint.object]
+    safe_edges = [constraint for constraint in adg.constraint_edges if constraint.subject != constraint.object] # filter self loop
     safe_adg = ADG(nodes=adg.nodes, edges=adg.edges, constraint_edges=safe_edges)
     matched = match_constraints(safe_adg)
 
@@ -217,10 +228,13 @@ def detect(diff_result: DiffResult, adg: ADG) -> CPTResult:
 
 
 if __name__ == "__main__":
-    from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, PredicateType
+    from services.models import ADG, ChangedFQN, ConstraintEdge, DiffResult, Edge, FQNKind, FQNNode, PredicateType
 
     adg = ADG(
-        nodes=[],
+        nodes=[
+            FQNNode(fqn=FQN.from_dotted_safe("app.service.UserService"), kind=FQNKind.CLASS, file_path="app/service.py", line_start=1, line_end=10),
+            FQNNode(fqn=FQN.from_dotted_safe("app.repo.UserRepo"), kind=FQNKind.CLASS, file_path="app/repo.py", line_start=1, line_end=10),
+        ],
         edges=[
             Edge(source="app.service.UserService", target="app.repo.UserRepo", kind="CALLS"),
             Edge(source="app.service.UserService", target="app.repo.UserRepo", kind="IMPORTS"),
