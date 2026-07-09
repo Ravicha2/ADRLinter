@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from services.adg.merge import merge_constraints
+from services.cpt.dismissal import Dismissal, filter_dismissed
 from services.cpt.diff_processor import augment_adg, process_diff
 from services.cpt.engine import detect as cpt_detect
 from services.models import ADG, CommitDiff, ConstraintEdge, DiffResult, SymbolicConstraint
@@ -106,7 +107,7 @@ class ADGPipeline:
     """Orchestrates the full ADG -> CPT detection pipeline."""
 
     def run_prepared(self, inputs: PipelineInputs) -> "CPTResult":
-        """Pure pipeline: no IO, no mutation surprises.
+        """Pure pipeline: no io, no mutation surprises.
 
         Merge constraints, compute specificity, optionally augment, then detect.
         """
@@ -119,6 +120,21 @@ class ADGPipeline:
             merged = augment_immutable(merged, inputs.commit_diff)
 
         return cpt_detect(inputs.diff_result, merged)
+
+    def run_with_dismissals(self, inputs: PipelineInputs, dismissals: list[Dismissal]) -> "CPTResult":
+        """Run detect pipeline, then filter out dismissed violations.
+
+        Pure function: no io, dismissals passed in by caller.
+        """
+        from services.cpt.engine import CPTResult
+
+        result = self.run_prepared(inputs)
+        filtered = filter_dismissed(result.violations, dismissals)
+        return CPTResult(
+            violations=filtered,
+            orphans=result.orphans,
+            self_loop_constraints=result.self_loop_constraints,
+        )
 
     @staticmethod
     def build_seed(adg: ADG, constraints: list[SymbolicConstraint], project_root: Path | None = None) -> ADG:

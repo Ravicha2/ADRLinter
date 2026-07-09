@@ -6,6 +6,7 @@ import logging
 
 from neo4j import GraphDatabase
 
+from services.cpt.dismissal import Dismissal
 from services.fqn import FQN
 from services.models import ADG, ConstraintEdge, DependencyRole, Edge, FQNKind, FQNNode, PredicateType
 
@@ -83,6 +84,7 @@ class GraphStore:
         with self._session() as session:
             session.run("CREATE CONSTRAINT fqn_unique IF NOT EXISTS FOR (n:FQNNode) REQUIRE n.fqn IS UNIQUE")
             session.run("CREATE INDEX fqn_file_path IF NOT EXISTS FOR (n:FQNNode) ON (n.file_path)")
+            session.run("CREATE CONSTRAINT dismissal_identity_unique IF NOT EXISTS FOR (d:Dismissal) REQUIRE d.identity_hash IS UNIQUE")
         log.info("create_schema: indexes and constraints ensured")
 
     def clear_all(self) -> None:
@@ -251,6 +253,74 @@ class GraphStore:
                 predicate_types=PREDICATE_VALUES,
             )
         log.info("delete_constraints_by_adr: deleted constraints for adr_id=%s", adr_id)
+
+    # --- Dismissal CRUD ---
+
+    def store_dismissal(self, dismissal: Dismissal) -> None:
+        """Persist a Dismissal node. MERGE on identity_hash (idempotent)."""
+        with self._session() as session:
+            session.run(
+                "MERGE (d:Dismissal {identity_hash: $identity_hash}) "
+                "SET d.short_id = $short_id, "
+                "d.subject = $subject, d.predicate = $predicate, "
+                "d.object = $object, d.matched_fqn = $matched_fqn, "
+                "d.adr_id = $adr_id, d.dismissed_at = $dismissed_at",
+                identity_hash=dismissal.identity_hash,
+                short_id=dismissal.short_id,
+                subject=dismissal.subject,
+                predicate=dismissal.predicate,
+                object=dismissal.object,
+                matched_fqn=dismissal.matched_fqn,
+                adr_id=dismissal.adr_id,
+                dismissed_at=dismissal.dismissed_at,
+            )
+        log.info("store_dismissal: stored dismissal short_id=%s for adr_id=%s", dismissal.short_id, dismissal.adr_id)
+
+    @staticmethod
+    def _row_to_dismissal(record) -> Dismissal:
+        return Dismissal(
+            short_id=record["short_id"],
+            identity_hash=record["identity_hash"],
+            subject=record["subject"],
+            predicate=record["predicate"],
+            object=record["object"],
+            matched_fqn=record["matched_fqn"],
+            adr_id=record["adr_id"],
+            dismissed_at=record["dismissed_at"],
+        )
+
+    def load_dismissals(self) -> list[Dismissal]:
+        """Load all Dismissal nodes from Neo4j."""
+        with self._session() as session:
+            result = session.run(
+                "MATCH (d:Dismissal) "
+                "RETURN d.short_id AS short_id, d.identity_hash AS identity_hash, "
+                "d.subject AS subject, d.predicate AS predicate, "
+                "d.object AS object, d.matched_fqn AS matched_fqn, "
+                "d.adr_id AS adr_id, d.dismissed_at AS dismissed_at"
+            )
+            return [self._row_to_dismissal(r) for r in result]
+
+    def delete_dismissals_by_adr(self, adr_id: str) -> int:
+        """Delete all dismissals for a given adr_id. Returns count deleted."""
+        with self._session() as session:
+            result = session.run(
+                "MATCH (d:Dismissal {adr_id: $adr_id}) DELETE d RETURN count(d) AS deleted",
+                adr_id=adr_id,
+            )
+            record = result.single()
+            deleted = record["deleted"] if record else 0
+        log.info("delete_dismissals_by_adr: deleted %d dismissals for adr_id=%s", deleted, adr_id)
+        return deleted
+
+    def delete_all_dismissals(self) -> int:
+        """Delete all Dismissal nodes. Used for seed rebuild."""
+        with self._session() as session:
+            result = session.run("MATCH (d:Dismissal) DELETE d RETURN count(d) AS deleted")
+            record = result.single()
+            deleted = record["deleted"] if record else 0
+        log.info("delete_all_dismissals: deleted %d dismissals", deleted)
+        return deleted
 
     # --- Full ADG ---
 

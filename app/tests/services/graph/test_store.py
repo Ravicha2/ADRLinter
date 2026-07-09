@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import pytest
 
+from services.cpt.dismissal import Dismissal
 from services.fqn import FQN
 from services.models import (
     ADG,
@@ -295,3 +296,65 @@ class TestADGPersistence:
         assert any(n.fqn == FQN.from_dotted("app.api") for n in loaded.nodes)
         # Constraint edges survive node deletion (ADR constraints outlive code)
         assert len(loaded.constraint_edges) == len(sample_adg_with_constraints.constraint_edges)
+
+
+# ===========================================================================
+# 6. Dismissal CRUD
+# ===========================================================================
+
+
+def _make_dismissal(short_id: str = "a3f2c", **overrides) -> Dismissal:
+    defaults = dict(
+        short_id=short_id,
+        identity_hash="a3f2c" + "0" * 59,  # 64-char fake SHA-256
+        subject="app.service.*",
+        predicate="prohibits_dependency",
+        object="app.repo.*",
+        matched_fqn="app.service.UserService",
+        adr_id="ADR-001",
+        dismissed_at="2026-07-09T00:00:00+00:00",
+    )
+    defaults.update(overrides)
+    return Dismissal(**defaults)
+
+
+@pytest.mark.integration
+class TestDismissalCRUD:
+    """Store, load, and delete Dismissal nodes in Neo4j."""
+
+    def test_store_and_load_dismissal(self, neo4j_store) -> None:
+        d = _make_dismissal()
+        neo4j_store.store_dismissal(d)
+        loaded = neo4j_store.load_dismissals()
+        assert len(loaded) == 1
+        assert loaded[0].short_id == d.short_id
+        assert loaded[0].identity_hash == d.identity_hash
+        assert loaded[0].subject == d.subject
+        assert loaded[0].adr_id == d.adr_id
+
+    def test_store_dismissal_idempotent_merge(self, neo4j_store) -> None:
+        d = _make_dismissal()
+        neo4j_store.store_dismissal(d)
+        neo4j_store.store_dismissal(d)
+        loaded = neo4j_store.load_dismissals()
+        assert len(loaded) == 1
+
+    def test_delete_dismissals_by_adr(self, neo4j_store) -> None:
+        d1 = _make_dismissal(short_id="a1111", adr_id="ADR-001", identity_hash="a1111" + "0" * 59)
+        d2 = _make_dismissal(short_id="b2222", adr_id="ADR-002", identity_hash="b2222" + "0" * 59)
+        neo4j_store.store_dismissal(d1)
+        neo4j_store.store_dismissal(d2)
+        deleted = neo4j_store.delete_dismissals_by_adr("ADR-001")
+        assert deleted == 1
+        remaining = neo4j_store.load_dismissals()
+        assert len(remaining) == 1
+        assert remaining[0].adr_id == "ADR-002"
+
+    def test_delete_all_dismissals(self, neo4j_store) -> None:
+        d1 = _make_dismissal(short_id="a1111", identity_hash="a1111" + "0" * 59)
+        d2 = _make_dismissal(short_id="b2222", identity_hash="b2222" + "0" * 59)
+        neo4j_store.store_dismissal(d1)
+        neo4j_store.store_dismissal(d2)
+        deleted = neo4j_store.delete_all_dismissals()
+        assert deleted == 2
+        assert neo4j_store.load_dismissals() == []
