@@ -14,6 +14,7 @@ from services.fqn import FQN
 from services.models import (
     ADG,
     ConstraintEdge,
+    DependencyRole,
     Edge,
     FQNKind,
     FQNNode,
@@ -469,3 +470,84 @@ class TestConstraintEdgeSpecificity:
             specificity=3.0,
         )
         assert edge.specificity == 3.0
+
+
+# ===========================================================================
+# 7. DependencyRole classification
+# ===========================================================================
+
+
+class TestDependencyRole:
+    """DependencyRole enum values and FQNNode default role."""
+
+    def test_dependency_role_values(self) -> None:
+        assert DependencyRole.INTERNAL.value == "internal"
+        assert DependencyRole.DEV_TOOL.value == "dev_tool"
+        assert DependencyRole.INFRASTRUCTURE.value == "infrastructure"
+        assert DependencyRole.APPLICATION.value == "application"
+        assert DependencyRole.UNKNOWN.value == "unknown"
+
+    def test_fqn_node_default_role_is_internal(self) -> None:
+        node = FQNNode(
+            fqn=FQN.from_dotted("app.service"),
+            kind=FQNKind.MODULE,
+            file_path="app/service.py",
+            line_start=0,
+            line_end=10,
+        )
+        assert node.role == DependencyRole.INTERNAL
+
+    def test_fqn_node_explicit_dev_tool_role(self) -> None:
+        node = FQNNode(
+            fqn=FQN.from_dotted("pytest"),
+            kind=FQNKind.EXTERNAL,
+            file_path="",
+            line_start=-1,
+            line_end=-1,
+            role=DependencyRole.DEV_TOOL,
+        )
+        assert node.role == DependencyRole.DEV_TOOL
+
+
+class TestDevToolClassification:
+    """EXTERNAL nodes are classified by PYTHON_DEV_TOOLS registry."""
+
+    def test_pytest_import_classified_as_dev_tool(self) -> None:
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+            FQNNode(fqn=FQN.from_dotted("app.mod"), kind=FQNKind.MODULE, file_path="app/mod.py", line_start=0, line_end=10, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app.mod", target="pytest", kind="IMPORTS"),
+            Edge(source="app.mod", target="pytest.fixture", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg)
+        pytest_nodes = [n for n in result.nodes if str(n.fqn).startswith("pytest")]
+        assert len(pytest_nodes) >= 1
+        for node in pytest_nodes:
+            assert node.role == DependencyRole.DEV_TOOL
+
+    def test_unknown_package_classified_as_unknown(self) -> None:
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="obscure_lib", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg)
+        external_nodes = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        assert len(external_nodes) == 1
+        assert external_nodes[0].role == DependencyRole.UNKNOWN
+
+    def test_internal_nodes_keep_internal_role(self) -> None:
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges: list[Edge] = []
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg)
+        for node in result.nodes:
+            if node.kind != FQNKind.EXTERNAL:
+                assert node.role == DependencyRole.INTERNAL

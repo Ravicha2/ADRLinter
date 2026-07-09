@@ -10,6 +10,7 @@ import logging
 from services.fqn import FQN
 from services.models import (
     ADG,
+    DependencyRole,
     FQNKind,
     FQNNode,
     SymbolicConstraint,
@@ -17,6 +18,27 @@ from services.models import (
 from services.adg.symbolic_resolver import resolve_symbolic_constraints
 
 log = logging.getLogger(__name__)
+
+PYTHON_DEV_TOOLS: frozenset[str] = frozenset({
+    "pytest", "py", "nose", "nose2", "unittest",
+    "black", "autopep8", "yapf",
+    "mypy", "pyre", "pytype",
+    "flake8", "pylint", "pyflakes", "pydocstyle", "ruff",
+    "isort", "bandit",
+    "tox", "nox",
+    "coverage", "pytest_cov",
+    "sphinx", "mkdocs",
+    "setuptools", "wheel", "pip", "build",
+    "twine", "pre_commit",
+})
+
+
+def _classify_external_role(fqn_str: str) -> DependencyRole:
+    """Classify an external FQN by its root package name."""
+    root_package = fqn_str.split(".")[0]
+    if root_package in PYTHON_DEV_TOOLS:
+        return DependencyRole.DEV_TOOL
+    return DependencyRole.UNKNOWN
 
 
 def add_external_nodes(adg: ADG) -> ADG:
@@ -36,6 +58,7 @@ def add_external_nodes(adg: ADG) -> ADG:
             file_path="",
             line_start=-1,
             line_end=-1,
+            role=_classify_external_role(fqn),
         )
         for fqn in external_fqns
     ]
@@ -73,6 +96,7 @@ def merge_constraints(adg: ADG, constraints: list[SymbolicConstraint]) -> ADG:
             file_path="",
             line_start=-1,
             line_end=-1,
+            role=_classify_external_role(fqn),
         )
         for fqn in orphan_fqns
     ]
