@@ -107,7 +107,8 @@ def _resolve_side(
 
 
 def resolve_symbolic_constraints(
-    symbolic: list[SymbolicConstraint], adg: ADG
+    symbolic: list[SymbolicConstraint], adg: ADG,
+    project_root: Path | None = None,
 ) -> list[ResolvedConstraint]:
     """Resolve SymbolicConstraints against the ADG into ResolvedConstraints.
 
@@ -119,10 +120,14 @@ def resolve_symbolic_constraints(
 
     External dependencies (dependency predicates with no ADG match) create
     EXTERNAL nodes directly.
-    """
-    from services.adg.merge import add_external_nodes
 
-    adg = add_external_nodes(adg)
+    project_root: optional path to repo root for dev-tool classification.
+    """
+    from pathlib import Path
+    from services.adg.merge import add_external_nodes, _classify_external_role, _load_dev_packages_from_config
+
+    extra_dev_packages = _load_dev_packages_from_config(project_root)
+    adg = add_external_nodes(adg, project_root=project_root)
     resolved: list[ResolvedConstraint] = []
 
     for sym_constraint in symbolic:
@@ -139,12 +144,14 @@ def resolve_symbolic_constraints(
         # a dependency predicate, create an EXTERNAL node
         if not object_nodes and pred_value in ("requires_dependency", "prohibits_dependency"):
             ext_fqn = FQN.from_dotted(sym_constraint.object_role_general)
+            ext_role = _classify_external_role(str(ext_fqn), extra_dev_packages)
             ext_node = FQNNode(
                 fqn=ext_fqn,
                 kind=FQNKind.EXTERNAL,
                 file_path="",
                 line_start=-1,
                 line_end=-1,
+                role=ext_role,
             )
             adg = ADG(
                 nodes=adg.nodes + [ext_node],

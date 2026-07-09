@@ -153,6 +153,7 @@ def detect(
         constraints=all_constraints,
         diff_result=result,
         commit_diff=commit_diff,
+        project_root=repo_path,
     )
     cpt_result = pipeline.run_prepared(pipeline_inputs)
 
@@ -233,7 +234,7 @@ def seed_build(
     # Merge and compute specificity
     console.print("[bold]Step 3:[/] Merging ADG with constraints...")
     pipeline = ADGPipeline()
-    merged = pipeline.build_seed(adg, all_constraints)
+    merged = pipeline.build_seed(adg, all_constraints, project_root=repo_path)
     external_count = sum(1 for n in merged.nodes if n.kind == FQNKind.EXTERNAL)
     console.print(f"  {len(merged.constraint_edges)} constraint edges, {external_count} EXTERNAL nodes")
 

@@ -18,6 +18,7 @@ Usage (tests, pure data):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from services.adg.merge import merge_constraints
 from services.cpt.diff_processor import augment_adg, process_diff
@@ -94,6 +95,7 @@ class PipelineInputs:
     constraints: list[SymbolicConstraint]
     diff_result: DiffResult
     commit_diff: CommitDiff | None = None
+    project_root: Path | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +112,7 @@ class ADGPipeline:
         """
         from services.cpt.engine import CPTResult
 
-        merged = merge_constraints(inputs.adg, inputs.constraints)
+        merged = merge_constraints(inputs.adg, inputs.constraints, project_root=inputs.project_root)
         merged = adg_with_specificity(merged)
 
         if inputs.commit_diff is not None:
@@ -119,10 +121,10 @@ class ADGPipeline:
         return cpt_detect(inputs.diff_result, merged)
 
     @staticmethod
-    def build_seed(adg: ADG, constraints: list[SymbolicConstraint]) -> ADG:
+    def build_seed(adg: ADG, constraints: list[SymbolicConstraint], project_root: Path | None = None) -> ADG:
         """Merge constraints into ADG and compute specificity. No diff, no detection.
 
         For cli/main.py:seed_build().
         """
-        merged = merge_constraints(adg, constraints)
+        merged = merge_constraints(adg, constraints, project_root=project_root)
         return adg_with_specificity(merged)
