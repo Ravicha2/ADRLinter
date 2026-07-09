@@ -70,7 +70,7 @@ def main() -> None:
     # Step 2: build seed via pipeline (merge + specificity)
     print("\n--- Step 2: build_seed ---")
     pipeline = ADGPipeline()
-    merged = pipeline.build_seed(adg, FLASK_CONSTRAINTS)
+    merged = pipeline.build_seed(adg, FLASK_CONSTRAINTS, project_root=repo_path)
     print(f"  constraint_edges: {len(merged.constraint_edges)}")
     for ce in merged.constraint_edges:
         print(f"    [{ce.adr_id}] {ce.subject} -[{ce.predicate.value}]-> {ce.object}  specificity={ce.specificity}")

@@ -170,7 +170,7 @@ def merge_constraints(adg: ADG, constraints: list[SymbolicConstraint], project_r
     log.info("merge_constraints: merging %d symbolic constraints into ADG with %d nodes", len(constraints), len(adg.nodes))
 
     extra_dev_packages = _load_dev_packages_from_config(project_root)
-    resolved = resolve_symbolic_constraints(constraints, adg)
+    resolved = resolve_symbolic_constraints(constraints, adg, project_root=project_root)
 
     constraint_edges = [rc.constraint_edge for rc in resolved]
 
