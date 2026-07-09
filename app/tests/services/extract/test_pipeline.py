@@ -258,6 +258,39 @@ class TestExtractChangedAdrs:
         assert len(results) == 2
         assert mock_extractor.extract_constraints.call_count == 2
 
+    @patch("services.extract.pipeline.ADRExtractor")
+    def test_rejected_adr_skipped_in_diff(
+        self, mock_extractor_cls: MagicMock
+    ) -> None:
+        """Rejected ADRs in a diff are skipped without calling the extractor."""
+        from services.extract import LangExtractConfig, extract_changed_adrs
+
+        mock_extractor = MagicMock()
+        mock_extractor_cls.return_value = mock_extractor
+
+        rejected_adr_text = b"# ADR-002: Use MongoDB\n\n## Status\n\nRejected\n\n## Decision\n\nNo.\n"
+
+        diff = CommitDiff(
+            commit_sha="abc123",
+            parent_sha="abc122",
+            changed_files=[
+                FileChange(path="docs/adr/ADR-001-mysql-storage.md", status="modified"),
+                FileChange(path="docs/adr/ADR-002-mongodb.md", status="added"),
+            ],
+            file_contents={
+                "docs/adr/ADR-001-mysql-storage.md": ADR_MYSQL_TEXT.encode(),
+                "docs/adr/ADR-002-mongodb.md": rejected_adr_text,
+            },
+            parent_contents={},
+        )
+
+        config = LangExtractConfig(api_key_env="TEST_API_KEY")
+        results = extract_changed_adrs(diff, adr_dir="docs/adr", config=config)
+
+        # Only the accepted ADR is extracted; the rejected one is skipped
+        assert len(results) == 1
+        mock_extractor.extract_constraints.assert_called_once()
+
 
 # ===========================================================================
 # 3. extract_all_adrs: seed build extraction

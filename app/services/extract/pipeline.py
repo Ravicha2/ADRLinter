@@ -2,14 +2,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from services.extract.config import LangExtractConfig
 from services.extract.engine import ADRExtractor
-from services.extract.io import is_adr_file, parse_adr_id
+from services.extract.io import is_adr_file, parse_adr_id, parse_adr_status
 from services.extract.logging import ADRLogEntry
 from services.extract.prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
-from services.models import CommitDiff, ExtractionError, ExtractionResult
+from services.models import ADRStatus, CommitDiff, ExtractionError, ExtractionResult
+
+log = logging.getLogger(__name__)
 
 
 def extract_changed_adrs(
@@ -26,6 +29,10 @@ def extract_changed_adrs(
         if is_adr_file(change, adr_dir):
             if change.path in diff.file_contents:
                 content = diff.file_contents[change.path].decode("utf-8", errors="replace")
+                status = parse_adr_status(content)
+                if status is ADRStatus.REJECTED:
+                    log.info("extract_changed_adrs: skipping rejected ADR %s", change.path)
+                    continue
                 adr_id = parse_adr_id(change.path)
                 result = extractor.extract_constraints(content, adr_id, change.path)
                 results.append(result)

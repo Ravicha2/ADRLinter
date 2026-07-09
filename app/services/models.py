@@ -22,6 +22,12 @@ class DependencyRole(Enum):
     UNKNOWN = "unknown"
 
 
+class ADRStatus(Enum):
+    ACCEPTED = "accepted"
+    SUPERSEDED = "superseded"
+    REJECTED = "rejected"
+
+
 @dataclass
 class FQNNode:
     fqn: FQN
