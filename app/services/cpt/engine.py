@@ -109,10 +109,18 @@ def check_structural_predicates(
         kinds = {"CONTAINS", "IMPORTS", "CALLS", "INHERITS"} if pred == PredicateType.PROHIBITS_DEPENDENCY else {"CONTAINS", "CALLS"}
         label = "has dependency path to" if pred == PredicateType.PROHIBITS_DEPENDENCY else "implements"
 
+        # ponytail: DEV_TOOL objects are not architecturally meaningful for prohibits
+        non_dev_object_matches = [
+            (fqn, status) for fqn, status in matched_constraint.object_matches
+            if not (node_roles and node_roles.get(str(fqn)) == DependencyRole.DEV_TOOL)
+        ]
+        if not non_dev_object_matches:
+            continue
+
         for subject_fqn, subject_status in matched_constraint.subject_matches:
             subject_str = str(subject_fqn)
             reachable = _reachable_nodes(subject_str, adjacency, kinds, node_roles=node_roles, skip_roles={DependencyRole.DEV_TOOL})
-            for object_fqn, object_status in matched_constraint.object_matches:
+            for object_fqn, object_status in non_dev_object_matches:
                 higher = subject_status if _PRIORITY[subject_status] >= _PRIORITY[object_status] else object_status
                 object_str = str(object_fqn)
                 if any(reachable_node == object_str or reachable_node.startswith(object_str + ".") for reachable_node in reachable):
@@ -165,6 +173,13 @@ def check_change_triggered_predicates(
 
             kinds = {"CONTAINS", "IMPORTS", "CALLS", "INHERITS"} if pred == PredicateType.REQUIRES_DEPENDENCY else {"CONTAINS", "CALLS"}
             label = "has no dependency on any module matching" if pred == PredicateType.REQUIRES_DEPENDENCY else "does not implement any module matching"
+            # ponytail: DEV_TOOL objects are not architecturally meaningful for requires
+            non_dev_object_matches = [
+                (fqn, status) for fqn, status in matched_constraint.object_matches
+                if not (node_roles and node_roles.get(str(fqn)) == DependencyRole.DEV_TOOL)
+            ]
+            if not non_dev_object_matches:
+                continue
             for subject_fqn, subject_status in relevant_subjects:
                 subject_str = str(subject_fqn)
                 reachable = _reachable_nodes(subject_str, adjacency, kinds, node_roles=node_roles, skip_roles={DependencyRole.DEV_TOOL})

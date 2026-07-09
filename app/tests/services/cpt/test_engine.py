@@ -1010,3 +1010,107 @@ class TestDevToolFiltering:
         }
         violations = check_structural_predicates(matched, adjacency, node_roles=node_roles)
         assert len(violations) == 1
+
+    def test_prohibits_dependency_suppresses_dev_tool_object(self) -> None:
+        """PROHIBITS_DEPENDENCY with DEV_TOOL object is suppressed entirely."""
+        from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="pytest",
+            justification="API must not depend on pytest.",
+            adr_id="ADR-DT3",
+            adr_path="docs/adr/dt3.md",
+        )
+        adjacency = _build_adjacency({
+            Edge(source="app.api.users", target="pytest", kind="IMPORTS"),
+        })
+        node_roles = {
+            "app.api.users": DependencyRole.INTERNAL,
+            "pytest": DependencyRole.DEV_TOOL,
+        }
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api.users"), MatchStatus.WILDCARD)],
+                object_matches=[(FQN.from_dotted("pytest"), MatchStatus.EXACT)],
+            ),
+        }
+        violations = check_structural_predicates(matched, adjacency, node_roles=node_roles)
+        assert len(violations) == 0
+
+    def test_requires_dependency_suppresses_dev_tool_object(self) -> None:
+        """REQUIRES_DEPENDENCY targeting a DEV_TOOL produces no violation."""
+        from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.*",
+            predicate=PredicateType.REQUIRES_DEPENDENCY,
+            object="pytest",
+            justification="Must use pytest for testing.",
+            adr_id="ADR-DT4",
+            adr_path="docs/adr/dt4.md",
+        )
+        adjacency = _build_adjacency({
+            Edge(source="app", target="app.api", kind="CONTAINS"),
+        })
+        node_roles = {
+            "app": DependencyRole.INTERNAL,
+            "app.api": DependencyRole.INTERNAL,
+            "pytest": DependencyRole.DEV_TOOL,
+        }
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api"), MatchStatus.WILDCARD)],
+                object_matches=[(FQN.from_dotted("pytest"), MatchStatus.EXACT)],
+            ),
+        }
+        changed = [ChangedFQN(
+            fqn=FQN.from_dotted("app.api.users"),
+            change_type="added",
+            file_path="app/api/users.py",
+            enclosing_module=FQN.from_dotted("app.api"),
+        )]
+        violations = check_change_triggered_predicates(matched, adjacency, changed, node_roles=node_roles)
+        assert len(violations) == 0
+
+    def test_requires_dependency_flags_unknown_object(self) -> None:
+        """REQUIRES_DEPENDENCY targeting an UNKNOWN (application) object still produces violation."""
+        from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.*",
+            predicate=PredicateType.REQUIRES_DEPENDENCY,
+            object="django",
+            justification="Must use Django.",
+            adr_id="ADR-DT5",
+            adr_path="docs/adr/dt5.md",
+        )
+        adjacency = _build_adjacency({
+            Edge(source="app", target="app.api", kind="CONTAINS"),
+        })
+        node_roles = {
+            "app": DependencyRole.INTERNAL,
+            "app.api": DependencyRole.INTERNAL,
+            "django": DependencyRole.UNKNOWN,
+        }
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api"), MatchStatus.WILDCARD)],
+                object_matches=[(FQN.from_dotted("django"), MatchStatus.EXACT)],
+            ),
+        }
+        changed = [ChangedFQN(
+            fqn=FQN.from_dotted("app.api.users"),
+            change_type="added",
+            file_path="app/api/users.py",
+            enclosing_module=FQN.from_dotted("app.api"),
+        )]
+        violations = check_change_triggered_predicates(matched, adjacency, changed, node_roles=node_roles)
+        assert len(violations) == 1

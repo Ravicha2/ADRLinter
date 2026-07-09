@@ -7,7 +7,7 @@ import logging
 from neo4j import GraphDatabase
 
 from services.fqn import FQN
-from services.models import ADG, ConstraintEdge, Edge, FQNKind, FQNNode, PredicateType
+from services.models import ADG, ConstraintEdge, DependencyRole, Edge, FQNKind, FQNNode, PredicateType
 
 log = logging.getLogger(__name__)
 
@@ -62,6 +62,11 @@ class GraphStore:
     @staticmethod
     def _row_to_fqn_node(record) -> FQNNode:
         props = dict(record["n"])
+        role_str = props.get("role", "internal")
+        try:
+            role = DependencyRole(role_str)
+        except ValueError:
+            role = DependencyRole.INTERNAL
         return FQNNode(
             fqn=FQN.from_dotted(props["fqn"]),
             kind=FQNKind(props["kind"]),
@@ -70,6 +75,7 @@ class GraphStore:
             line_end=props["line_end"],
             start_byte=props.get("start_byte", 0),
             end_byte=props.get("end_byte", 0),
+            role=role,
         )
 
     def create_schema(self) -> None:
@@ -95,11 +101,13 @@ class GraphStore:
                 f"MERGE (n:FQNNode:{label} {{fqn: $fqn}}) "
                 "SET n.kind = $kind, n.file_path = $file_path, "
                 "n.line_start = $line_start, n.line_end = $line_end, "
-                "n.start_byte = $start_byte, n.end_byte = $end_byte",
+                "n.start_byte = $start_byte, n.end_byte = $end_byte, "
+                "n.role = $role",
                 fqn=str(node.fqn), kind=node.kind.value,
                 file_path=node.file_path,
                 line_start=node.line_start, line_end=node.line_end,
                 start_byte=node.start_byte, end_byte=node.end_byte,
+                role=node.role.value,
             )
 
     def load_node(self, fqn: FQN) -> FQNNode | None:
@@ -157,7 +165,7 @@ class GraphStore:
                 "MERGE (n:FQNNode {fqn: $fqn}) "
                 "ON CREATE SET n.kind = 'external', n.file_path = '', "
                 "n.line_start = -1, n.line_end = -1, "
-                "n.start_byte = 0, n.end_byte = 0 "
+                "n.start_byte = 0, n.end_byte = 0, n.role = 'unknown' "
                 "RETURN n.kind AS kind",
                 fqn=fqn_str,
             )
