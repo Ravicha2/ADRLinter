@@ -74,10 +74,9 @@ def _resolve_repo_path(repo_cfg) -> Path:
 
 
 def _run_detection(repo: str, commit: str | None) -> DetectionResult:
-    """Shared detection pipeline. Returns DetectionResult or raises typer.Exit."""
+    """Shared detection pipeline. Loads ADG from Neo4j (seeded via `seed build`)."""
     from services.cpt.engine import CPTResult
 
-    config = load_config()
     repo_cfg = _get_repo(repo)
     repo_path = _resolve_repo_path(repo_cfg)
 
@@ -94,20 +93,23 @@ def _run_detection(repo: str, commit: str | None) -> DetectionResult:
 
     diff_result: DiffResult = process_diff(commit_diff)
 
-    adg = parse_repo(repo_path)
-    package_context = derive_package_context(adg)
-
-    all_constraints: list[SymbolicConstraint] = []
-    for ext_result in extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract, package_context=package_context):
-        all_constraints.extend(ext_result.constraints)
+    # ponytail: load seeded ADG from Neo4j instead of re-parsing repo + re-extracting ADRs
+    store = GraphStore(
+        uri=os.getenv("NEO4J_URI", "bolt://neo4j:7687"),
+        user=os.getenv("NEO4J_USER", "neo4j"),
+        password=os.getenv("NEO4J_PASSWORD", "password"),
+        database=os.getenv("NEO4J_DATABASE", "neo4j"),
+    )
+    store.connect()
+    adg = store.load_adg()
+    store.close()
 
     pipeline = ADGPipeline()
     pipeline_inputs = PipelineInputs(
         adg=adg,
-        constraints=all_constraints,
+        constraints=[],  # constraints already in ADG from seed
         diff_result=diff_result,
         commit_diff=commit_diff,
-        project_root=repo_path,
     )
     cpt_result = pipeline.run_prepared(pipeline_inputs)
 
