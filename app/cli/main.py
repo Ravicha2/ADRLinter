@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -11,17 +12,27 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from cli.config import load_config
+from cli.config import RepoConfig, load_config
 from services.adg import parse_repo
-from services.models import FQNKind, SymbolicConstraint
 from services.cpt import GitAdapter, process_diff
+from services.cpt.dismissal import Dismissal, filter_dismissed, violation_short_id
 from services.extract import extract_all_adrs
 from services.extract.engine import derive_package_context
 from services.graph.connector import GraphStore
-from services.models import DiffResult, FQNKind
+from services.models import CommitDiff, DiffResult, FQNKind, SymbolicConstraint
 from services.pipeline import ADGPipeline, PipelineInputs
 
 console = Console()
+
+
+@dataclass
+class DetectionResult:
+    cpt_result: "object"  # services.cpt.engine.CPTResult
+    commit_diff: CommitDiff
+    diff_result: DiffResult
+    repo_cfg: RepoConfig
+    repo_path: Path
+
 
 def _setup_logging(verbose: int = 0) -> None:
     level = {0: logging.WARNING, 1: logging.INFO, 2: logging.DEBUG}.get(verbose, logging.DEBUG)
@@ -61,23 +72,19 @@ def _resolve_repo_path(repo_cfg) -> Path:
         path = config_dir / path
     return path.resolve()
 
-@app.command()
-def detect(
-    repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
-    commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
-) -> None:
-    """Run CPT violation detection on a repository."""
+
+def _run_detection(repo: str, commit: str | None) -> DetectionResult:
+    """Shared detection pipeline. Returns DetectionResult or raises typer.Exit."""
+    from services.cpt.engine import CPTResult
+
     config = load_config()
     repo_cfg = _get_repo(repo)
     repo_path = _resolve_repo_path(repo_cfg)
-    
+
     if not repo_path.exists():
         console.print(f"[red]Error:[/] Repository path does not exist: {repo_path}")
         raise typer.Exit(code=1)
-    
-    console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
 
-    # 1. Fetch the commit diff from git
     adapter = GitAdapter()
     try:
         commit_diff = adapter.get_commit_diff(repo_path, commit_sha=commit)
@@ -85,20 +92,56 @@ def detect(
         console.print(f"[red]Git error:[/] {e}")
         raise typer.Exit(code=1)
 
-    # 2. Process the diff to idenity changed FQN
-    result: DiffResult = process_diff(commit_diff)
+    diff_result: DiffResult = process_diff(commit_diff)
 
-    # 3. Display diff result
+    adg = parse_repo(repo_path)
+    package_context = derive_package_context(adg)
+
+    all_constraints: list[SymbolicConstraint] = []
+    for ext_result in extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract, package_context=package_context):
+        all_constraints.extend(ext_result.constraints)
+
+    pipeline = ADGPipeline()
+    pipeline_inputs = PipelineInputs(
+        adg=adg,
+        constraints=all_constraints,
+        diff_result=diff_result,
+        commit_diff=commit_diff,
+        project_root=repo_path,
+    )
+    cpt_result = pipeline.run_prepared(pipeline_inputs)
+
+    return DetectionResult(
+        cpt_result=cpt_result,
+        commit_diff=commit_diff,
+        diff_result=diff_result,
+        repo_cfg=repo_cfg,
+        repo_path=repo_path,
+    )
+
+
+violation_app = typer.Typer(help="List and dismiss CPT violations.")
+app.add_typer(violation_app, name="violation")
+
+@app.command()
+def detect(
+    repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
+    commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
+) -> None:
+    """Run CPT violation detection on a repository."""
+    dr = _run_detection(repo, commit)
+
+    console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
     console.print()
-    console.print(f"[bold]Commit:[/] {commit_diff.commit_sha[:6]}...")
-    if commit_diff.parent_sha is not None:
-        console.print(f"[bold]Parent:[/] {commit_diff.parent_sha[:6]}...")
+    console.print(f"[bold]Commit:[/] {dr.commit_diff.commit_sha[:6]}...")
+    if dr.commit_diff.parent_sha is not None:
+        console.print(f"[bold]Parent:[/] {dr.commit_diff.parent_sha[:6]}...")
 
-    if result.changed_files:
+    if dr.diff_result.changed_files:
         file_table = Table(title="Changed Files", show_lines=True)
         file_table.add_column("Path", style="cyan")
         file_table.add_column("Status", style="green")
-        for file_changed in result.changed_files:
+        for file_changed in dr.diff_result.changed_files:
             status_style = {
                 "added": "green",
                 "modified": "yellow",
@@ -111,14 +154,14 @@ def detect(
             file_table.add_row(path_display, f"[{status_style}]{file_changed.status}[/{status_style}]")
         console.print(file_table)
 
-    if result.changed_fqns:
+    if dr.diff_result.changed_fqns:
         fqn_table = Table(title="Changed FQNs", show_lines=True)
         fqn_table.add_column("FQN", style="cyan")
         fqn_table.add_column("Change", style="green")
         fqn_table.add_column("File", style="dim")
         fqn_table.add_column("Enclosing Class", style="dim")
         fqn_table.add_column("Module", style="dim")
-        for changed_fqn in result.changed_fqns:
+        for changed_fqn in dr.diff_result.changed_fqns:
             change_style = {
                 "added": "green",
                 "modified": "yellow",
@@ -135,32 +178,8 @@ def detect(
     else:
         console.print("[dim]No FQN changes detected.[/]")
 
-    # 4. Build ADG and run CPT detection
-    console.print()
-    console.print("[bold]Building ADG...[/]")
-    adg = parse_repo(repo_path)
-    package_context = derive_package_context(adg)
-
-    console.print("[bold]Extracting ADR constraints...[/]")
-    all_constraints: list[SymbolicConstraint] = []
-    for ext_result in extract_all_adrs(repo_path, repo_cfg.adr_dir, config.langextract, package_context=package_context):
-        all_constraints.extend(ext_result.constraints)
-
-    # 5. Pipeline: merge, compute specificity, augment, detect
-    pipeline = ADGPipeline()
-    pipeline_inputs = PipelineInputs(
-        adg=adg,
-        constraints=all_constraints,
-        diff_result=result,
-        commit_diff=commit_diff,
-        project_root=repo_path,
-    )
-    cpt_result = pipeline.run_prepared(pipeline_inputs)
-
-    console.print(f"  ADG: {len(adg.nodes)} nodes, {len(adg.edges)} edges, {len(all_constraints)} constraints")
-
-    # 6. Display violations
-    if cpt_result.violations:
+    # Display violations
+    if dr.cpt_result.violations:
         v_table = Table(title="Violations", show_lines=True)
         v_table.add_column("ADR", style="cyan")
         v_table.add_column("Predicate", style="bold red")
@@ -168,7 +187,7 @@ def detect(
         v_table.add_column("Object", style="yellow")
         v_table.add_column("Changed FQN", style="green")
         v_table.add_column("Evidence", style="dim")
-        for v in cpt_result.violations:
+        for v in dr.cpt_result.violations:
             v_table.add_row(
                 v.constraint.adr_id,
                 v.constraint.predicate.value,
@@ -181,13 +200,13 @@ def detect(
     else:
         console.print("[bold green]No violations found.[/]")
 
-    if cpt_result.orphans:
+    if dr.cpt_result.orphans:
         o_table = Table(title="Orphan Constraints (no neighborhood match)", show_lines=True)
         o_table.add_column("ADR", style="cyan")
         o_table.add_column("Predicate", style="dim")
         o_table.add_column("Subject", style="dim")
         o_table.add_column("Object", style="dim")
-        for c in cpt_result.orphans:
+        for c in dr.cpt_result.orphans:
             o_table.add_row(c.adr_id, c.predicate.value, c.subject, c.object)
         console.print(o_table)
 
@@ -200,6 +219,93 @@ def report(
     _get_repo(repo)
     console.print(f"[bold]Fetching[/] reports for [cyan]{repo}[/]")
     console.print("[dim]Not implemented yet.[/]")
+
+
+@violation_app.command("list")
+def violation_list(
+    repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
+    commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
+) -> None:
+    """List violations, filtering out dismissed ones."""
+    console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
+    dr = _run_detection(repo, commit)
+    console.print(f"  Found {len(dr.cpt_result.violations)} violation(s) before dismissal filter")
+
+    store = GraphStore(
+        uri=os.getenv("NEO4J_URI", "bolt://neo4j:7687"),
+        user=os.getenv("NEO4J_USER", "neo4j"),
+        password=os.getenv("NEO4J_PASSWORD", "password"),
+        database=os.getenv("NEO4J_DATABASE", "neo4j"),
+    )
+    store.connect()
+    dismissals = store.load_dismissals()
+    store.close()
+    console.print(f"  Loaded {len(dismissals)} dismissal(s) from Neo4j")
+
+    active = filter_dismissed(dr.cpt_result.violations, dismissals)
+
+    if active:
+        table = Table(title="Active Violations", show_lines=True)
+        table.add_column("Short ID", style="bold cyan")
+        table.add_column("ADR", style="cyan")
+        table.add_column("Predicate", style="bold red")
+        table.add_column("Subject", style="yellow")
+        table.add_column("Object", style="yellow")
+        table.add_column("Changed FQN", style="green")
+        table.add_column("Evidence", style="dim")
+        for v in active:
+            table.add_row(
+                violation_short_id(v),
+                v.constraint.adr_id,
+                v.constraint.predicate.value,
+                v.constraint.subject,
+                v.constraint.object,
+                str(v.changed_fqn),
+                v.evidence,
+            )
+        console.print(table)
+    else:
+        console.print("[bold green]No active violations.[/]")
+
+    dismissed_count = len(dr.cpt_result.violations) - len(active)
+    if dismissed_count:
+        console.print(f"[dim]{dismissed_count} violation(s) dismissed.[/]")
+
+
+@violation_app.command("dismiss")
+def violation_dismiss(
+    short_id: str = typer.Argument(..., help="Short ID (5 hex chars) of the violation to dismiss"),
+    repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
+    commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
+) -> None:
+    """Dismiss a violation by its short ID. Violations are ephemeral; must match current detection results."""
+    console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
+    dr = _run_detection(repo, commit)
+
+    match = None
+    for v in dr.cpt_result.violations:
+        if violation_short_id(v) == short_id:
+            match = v
+            break
+
+    if match is None:
+        console.print(f"[red]Error:[/] No violation with short_id '{short_id}' found in current detection results")
+        raise typer.Exit(code=1)
+
+    dismissal = Dismissal.from_violation(match)
+
+    store = GraphStore(
+        uri=os.getenv("NEO4J_URI", "bolt://neo4j:7687"),
+        user=os.getenv("NEO4J_USER", "neo4j"),
+        password=os.getenv("NEO4J_PASSWORD", "password"),
+        database=os.getenv("NEO4J_DATABASE", "neo4j"),
+    )
+    store.connect()
+    store.store_dismissal(dismissal)
+    store.close()
+
+    console.print(f"[green]Dismissed[/] violation {short_id}: {match.constraint.predicate.value} "
+                  f"{match.constraint.subject} -> {match.constraint.object}")
 
 
 @seed_app.command("build")
@@ -248,6 +354,8 @@ def seed_build(
     )
     store.connect()
     store.create_schema()
+    deleted = store.delete_all_dismissals()  # ADR 012: seed rebuild wipes dismissals
+    console.print(f"  Cleared {deleted} previous dismissal(s)")
     store.store_adg(merged)
     store.close()
     console.print(f"[bold green]Done[/] Seed built for [cyan]{repo}[/]")
