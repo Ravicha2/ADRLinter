@@ -16,7 +16,7 @@ from services.cpt.engine import CPTResult, Violation, detect as cpt_detect
 from services.cpt.diff_processor import process_diff
 from services.cpt.git_adapter import GitAdapter
 from services.graph.connector import GraphStore
-from services.models import ADG, CommitDiff, ConstraintEdge, DiffResult, FQNKind, FQNNode
+from services.models import ADG, ChangedFQN, CommitDiff, ConstraintEdge, DiffResult, FileChange, FQNKind, FQNNode
 from services.fqn import FQN
 from services.pipeline import adg_with_specificity, augment_immutable
 
@@ -28,9 +28,12 @@ class UpdateResult:
     violations: list[Violation]
     orphans: list[ConstraintEdge]
     self_loop_constraints: list[ConstraintEdge]
-    changed_files: int
+    changed_file_list: list[FileChange]
+    changed_fqns: list[ChangedFQN]
     dismissals_applied: int
     constraint_edges_preserved: int
+    commit_sha: str
+    parent_sha: str | None
 
 
 def merge_preserved_constraints(adg: ADG, constraint_edges: list[ConstraintEdge], project_root: Path | None = None) -> ADG:
@@ -132,7 +135,10 @@ def commit_update(
         violations=active_violations,
         orphans=cpt_result.orphans,
         self_loop_constraints=cpt_result.self_loop_constraints,
-        changed_files=len(diff_result.changed_files),
+        changed_file_list=diff_result.changed_files,
+        changed_fqns=diff_result.changed_fqns,
         dismissals_applied=len(cpt_result.violations) - len(active_violations),
         constraint_edges_preserved=len(constraint_edges),
+        commit_sha=commit_diff.commit_sha,
+        parent_sha=commit_diff.parent_sha,
     )

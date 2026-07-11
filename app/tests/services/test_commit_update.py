@@ -265,7 +265,7 @@ class TestCommitUpdate:
         # UpdateResult has expected structure
         assert isinstance(result.violations, list)
         assert isinstance(result.orphans, list)
-        assert isinstance(result.changed_files, int)
+        assert isinstance(result.changed_file_list, list)
         # Structural nodes back in Neo4j after update
         loaded = neo4j_store.load_adg()
         assert len(loaded.nodes) > 0

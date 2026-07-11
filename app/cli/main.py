@@ -244,13 +244,57 @@ def update(
 
     store.close()
 
-    console.print(f"[bold]Update[/] for [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
+    console.print(f"[bold]Updating[/] [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
+    console.print()
+    console.print(f"[bold]Commit:[/] {result.commit_sha[:6]}...")
+    if result.parent_sha is not None:
+        console.print(f"[bold]Parent:[/] {result.parent_sha[:6]}...")
+
     console.print(f"  Constraint edges preserved: {result.constraint_edges_preserved}")
     console.print(f"  Dismissals applied: {result.dismissals_applied}")
-    console.print(f"  Changed files: {result.changed_files}")
+
+    if result.changed_file_list:
+        file_table = Table(title="Changed Files", show_lines=True)
+        file_table.add_column("Path", style="cyan")
+        file_table.add_column("Status", style="green")
+        for file_changed in result.changed_file_list:
+            status_style = {
+                "added": "green",
+                "modified": "yellow",
+                "deleted": "red",
+                "renamed": "blue",
+            }.get(file_changed.status, "white")
+            path_display = file_changed.path
+            if file_changed.old_path:
+                path_display = f"{file_changed.old_path} -> {file_changed.path}"
+            file_table.add_row(path_display, f"[{status_style}]{file_changed.status}[/{status_style}]")
+        console.print(file_table)
+
+    if result.changed_fqns:
+        fqn_table = Table(title="Changed FQNs", show_lines=True)
+        fqn_table.add_column("FQN", style="cyan")
+        fqn_table.add_column("Change", style="green")
+        fqn_table.add_column("File", style="dim")
+        fqn_table.add_column("Enclosing Class", style="dim")
+        fqn_table.add_column("Module", style="dim")
+        for changed_fqn in result.changed_fqns:
+            change_style = {
+                "added": "green",
+                "modified": "yellow",
+                "deleted": "red",
+            }.get(changed_fqn.change_type, "white")
+            fqn_table.add_row(
+                str(changed_fqn.fqn),
+                f"[{change_style}]{changed_fqn.change_type}[/{change_style}]",
+                changed_fqn.file_path,
+                str(changed_fqn.enclosing_class) if changed_fqn.enclosing_class is not None else "-",
+                str(changed_fqn.enclosing_module),
+            )
+        console.print(fqn_table)
 
     if result.violations:
         v_table = Table(title="Active Violations", show_lines=True)
+        v_table.add_column("Short ID", style="bold cyan")
         v_table.add_column("ADR", style="cyan")
         v_table.add_column("Predicate", style="bold red")
         v_table.add_column("Subject", style="yellow")
@@ -259,6 +303,7 @@ def update(
         v_table.add_column("Evidence", style="dim")
         for v in result.violations:
             v_table.add_row(
+                violation_short_id(v),
                 v.constraint.adr_id,
                 v.constraint.predicate.value,
                 v.constraint.subject,
@@ -269,6 +314,16 @@ def update(
         console.print(v_table)
     else:
         console.print("[bold green]No active violations.[/]")
+
+    if result.orphans:
+        o_table = Table(title="Orphan Constraints (no neighborhood match)", show_lines=True)
+        o_table.add_column("ADR", style="cyan")
+        o_table.add_column("Predicate", style="dim")
+        o_table.add_column("Subject", style="dim")
+        o_table.add_column("Object", style="dim")
+        for c in result.orphans:
+            o_table.add_row(c.adr_id, c.predicate.value, c.subject, c.object)
+        console.print(o_table)
 
 
 @app.command()
