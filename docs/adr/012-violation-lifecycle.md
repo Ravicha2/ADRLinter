@@ -61,3 +61,7 @@ Dismissals are stored as standalone nodes, not as relationships to FQNNode or Co
 - Dismissals are permanent until explicitly cleaned up by seed rebuild or ADR deletion.
 - A dismissed false positive could mask a real violation after code changes. Accepted trade-off: simplicity over automatic invalidation.
 - No cross-store coordination needed; dismissals and ADG live in the same Neo4j database.
+
+## Risks
+
+- **Stale dismissals masking real violations**: a dismissal keyed to `(subject, predicate, object, matched_fqn, adr_id)` persists even after code changes cause the same identity key to reappear as a legitimate violation. Current design accepts this: the dismissal stays, the violation is hidden, and only a seed rebuild clears it. If this becomes a problem in practice, consider automatic invalidation when the underlying constraint or code path changes meaningfully (e.g., detect that the violation's context diff exceeds a threshold, or time-bounds dismissals with an expiry).

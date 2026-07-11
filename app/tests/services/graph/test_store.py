@@ -358,3 +358,68 @@ class TestDismissalCRUD:
         deleted = neo4j_store.delete_all_dismissals()
         assert deleted == 2
         assert neo4j_store.load_dismissals() == []
+
+
+# ===========================================================================
+# 7. Structural data wipe
+# ===========================================================================
+
+
+@pytest.mark.integration
+class TestDeleteStructuralData:
+    """delete_structural_data wipes FQNNodes and structural edges,
+    preserves constraint edges (via EXTERNAL placeholders) and Dismissal nodes.
+    """
+
+    def test_wipe_removes_fqnnodes_structural_edges_and_constraints(
+        self, neo4j_store, sample_adg_with_constraints: ADG
+    ) -> None:
+        neo4j_store.store_adg(sample_adg_with_constraints)
+        neo4j_store.delete_structural_data()
+
+        loaded = neo4j_store.load_adg()
+        # All structural edges gone
+        assert len(loaded.edges) == 0
+        # All nodes gone (constraint edges removed too, caller must re-insert)
+        assert len(loaded.nodes) == 0
+        # Constraint edges gone (caller is responsible for re-insertion)
+        assert len(loaded.constraint_edges) == 0
+
+    def test_dismissals_survive_structural_wipe(self, neo4j_store) -> None:
+        d = _make_dismissal()
+        neo4j_store.store_dismissal(d)
+        neo4j_store.delete_structural_data()
+
+        loaded = neo4j_store.load_dismissals()
+        assert len(loaded) == 1
+        assert loaded[0].short_id == d.short_id
+
+    def test_constraint_edges_survive_and_reconnect(
+        self, neo4j_store, sample_adg_with_constraints: ADG
+    ) -> None:
+        neo4j_store.store_adg(sample_adg_with_constraints)
+        original_edges = neo4j_store.load_all_constraint_edges()
+        assert len(original_edges) == 2
+
+        neo4j_store.delete_structural_data()
+
+        # Constraint edges gone after wipe (caller must re-insert)
+        after_wipe = neo4j_store.load_all_constraint_edges()
+        assert len(after_wipe) == 0
+
+        # Re-insert structural nodes and edges first
+        for node in sample_adg_with_constraints.nodes:
+            neo4j_store.store_node(node)
+        for edge in sample_adg_with_constraints.edges:
+            neo4j_store.store_edge(edge)
+
+        # Re-insert constraint edges (MERGE finds real code nodes)
+        for ce in original_edges:
+            neo4j_store.store_constraint_edge(ce)
+
+        # Constraint edges reconnect to real code nodes
+        final = neo4j_store.load_adg()
+        assert len(final.constraint_edges) == 2
+        # Real code nodes are present (not just EXTERNAL placeholders)
+        fqns = {str(n.fqn) for n in final.nodes}
+        assert "app.auth.middleware" in fqns

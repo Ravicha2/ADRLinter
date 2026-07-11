@@ -100,8 +100,10 @@ class GraphStore:
         log.debug("store_node: %s [%s] at %s:%d", node.fqn, label, node.file_path, node.line_start)
         with self._session() as session:
             session.run(
-                f"MERGE (n:FQNNode:{label} {{fqn: $fqn}}) "
-                "SET n.kind = $kind, n.file_path = $file_path, "
+                "MERGE (n:FQNNode {fqn: $fqn}) "
+                "REMOVE n:External "
+                f"SET n:FQNNode:{label}, "
+                "n.kind = $kind, n.file_path = $file_path, "
                 "n.line_start = $line_start, n.line_end = $line_end, "
                 "n.start_byte = $start_byte, n.end_byte = $end_byte, "
                 "n.role = $role",
@@ -369,6 +371,17 @@ class GraphStore:
         for ce in affected:
             self.store_constraint_edge(ce)
         log.info("delete_nodes_by_file: deleted nodes for file=%s", file_path)
+
+    def delete_structural_data(self) -> None:
+        """Delete all FQNNodes and structural edges.
+
+        Does NOT preserve constraint edges. The caller is responsible for
+        saving and re-inserting constraint edges around this call.
+        Dismissal nodes are unaffected (:Dismissal label, not :FQNNode).
+        """
+        with self._session() as session:
+            session.run("MATCH (n:FQNNode) DETACH DELETE n")
+        log.info("delete_structural_data: wiped all FQNNodes and structural edges")
 
     def _find_constraints_on_file(self, file_path: str) -> list[ConstraintEdge]:
         """Return constraint edges connected to nodes with the given file_path."""

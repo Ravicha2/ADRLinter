@@ -20,6 +20,7 @@ from services.extract import extract_all_adrs
 from services.extract.engine import derive_package_context
 from services.graph.connector import GraphStore
 from services.models import CommitDiff, DiffResult, FQNKind, SymbolicConstraint
+from services.commit_update import UpdateResult, commit_update
 from services.pipeline import ADGPipeline, PipelineInputs
 
 console = Console()
@@ -211,6 +212,63 @@ def detect(
         for c in dr.cpt_result.orphans:
             o_table.add_row(c.adr_id, c.predicate.value, c.subject, c.object)
         console.print(o_table)
+
+
+@app.command()
+def update(
+    repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
+    commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
+) -> None:
+    """Update ADG with commit changes: full structural rebuild preserving constraints and dismissals."""
+    repo_cfg = _get_repo(repo)
+    repo_path = _resolve_repo_path(repo_cfg)
+
+    if not repo_path.exists():
+        console.print(f"[red]Error:[/] Repository path does not exist: {repo_path}")
+        raise typer.Exit(code=1)
+
+    store = GraphStore(
+        uri=os.getenv("NEO4J_URI", "bolt://neo4j:7687"),
+        user=os.getenv("NEO4J_USER", "neo4j"),
+        password=os.getenv("NEO4J_PASSWORD", "password"),
+        database=os.getenv("NEO4J_DATABASE", "neo4j"),
+    )
+    store.connect()
+
+    try:
+        result = commit_update(store, repo_path, commit_sha=commit)
+    except RuntimeError as e:
+        console.print(f"[red]Error:[/] {e}")
+        store.close()
+        raise typer.Exit(code=1)
+
+    store.close()
+
+    console.print(f"[bold]Update[/] for [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
+    console.print(f"  Constraint edges preserved: {result.constraint_edges_preserved}")
+    console.print(f"  Dismissals applied: {result.dismissals_applied}")
+    console.print(f"  Changed files: {result.changed_files}")
+
+    if result.violations:
+        v_table = Table(title="Active Violations", show_lines=True)
+        v_table.add_column("ADR", style="cyan")
+        v_table.add_column("Predicate", style="bold red")
+        v_table.add_column("Subject", style="yellow")
+        v_table.add_column("Object", style="yellow")
+        v_table.add_column("Changed FQN", style="green")
+        v_table.add_column("Evidence", style="dim")
+        for v in result.violations:
+            v_table.add_row(
+                v.constraint.adr_id,
+                v.constraint.predicate.value,
+                v.constraint.subject,
+                v.constraint.object,
+                str(v.changed_fqn),
+                v.evidence,
+            )
+        console.print(v_table)
+    else:
+        console.print("[bold green]No active violations.[/]")
 
 
 @app.command()
