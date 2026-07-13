@@ -14,6 +14,7 @@ from services.fqn import FQN
 from services.models import (
     ADG,
     ConstraintEdge,
+    DependencyRole,
     Edge,
     FQNKind,
     FQNNode,
@@ -469,3 +470,279 @@ class TestConstraintEdgeSpecificity:
             specificity=3.0,
         )
         assert edge.specificity == 3.0
+
+
+# ===========================================================================
+# 7. DependencyRole classification
+# ===========================================================================
+
+
+class TestDependencyRole:
+    """DependencyRole enum values and FQNNode default role."""
+
+    def test_dependency_role_values(self) -> None:
+        assert DependencyRole.INTERNAL.value == "internal"
+        assert DependencyRole.DEV_TOOL.value == "dev_tool"
+        assert DependencyRole.INFRASTRUCTURE.value == "infrastructure"
+        assert DependencyRole.APPLICATION.value == "application"
+        assert DependencyRole.UNKNOWN.value == "unknown"
+
+    def test_fqn_node_default_role_is_internal(self) -> None:
+        node = FQNNode(
+            fqn=FQN.from_dotted("app.service"),
+            kind=FQNKind.MODULE,
+            file_path="app/service.py",
+            line_start=0,
+            line_end=10,
+        )
+        assert node.role == DependencyRole.INTERNAL
+
+    def test_fqn_node_explicit_dev_tool_role(self) -> None:
+        node = FQNNode(
+            fqn=FQN.from_dotted("pytest"),
+            kind=FQNKind.EXTERNAL,
+            file_path="",
+            line_start=-1,
+            line_end=-1,
+            role=DependencyRole.DEV_TOOL,
+        )
+        assert node.role == DependencyRole.DEV_TOOL
+
+
+class TestDevToolClassification:
+    """EXTERNAL nodes are classified by PYTHON_DEV_TOOLS registry."""
+
+    def test_pytest_import_classified_as_dev_tool(self) -> None:
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+            FQNNode(fqn=FQN.from_dotted("app.mod"), kind=FQNKind.MODULE, file_path="app/mod.py", line_start=0, line_end=10, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app.mod", target="pytest", kind="IMPORTS"),
+            Edge(source="app.mod", target="pytest.fixture", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg)
+        pytest_nodes = [n for n in result.nodes if str(n.fqn).startswith("pytest")]
+        assert len(pytest_nodes) >= 1
+        for node in pytest_nodes:
+            assert node.role == DependencyRole.DEV_TOOL
+
+    def test_unknown_package_classified_as_unknown(self) -> None:
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="obscure_lib", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg)
+        external_nodes = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        assert len(external_nodes) == 1
+        assert external_nodes[0].role == DependencyRole.UNKNOWN
+
+    def test_internal_nodes_keep_internal_role(self) -> None:
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges: list[Edge] = []
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg)
+        for node in result.nodes:
+            if node.kind != FQNKind.EXTERNAL:
+                assert node.role == DependencyRole.INTERNAL
+
+
+# ===========================================================================
+# 8. Config-based dev tool classification (ADR 011 supplement, issue 39)
+# ===========================================================================
+
+
+class TestConfigDevToolClassification:
+    """Project config files supplement the hardcoded dev-tool registry."""
+
+    def test_pyproject_optional_deps_classified_as_dev_tool(self, tmp_path) -> None:
+        """Packages in pyproject.toml [project.optional-dependencies] dev extras become DEV_TOOL."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "myapp"\n\n'
+            "[project.optional-dependencies]\n"
+            'dev = ["pytest>=8.2", "black"]\n'
+        )
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="pytest", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg, project_root=tmp_path)
+        pytest_nodes = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        assert len(pytest_nodes) == 1
+        assert pytest_nodes[0].role == DependencyRole.DEV_TOOL
+
+    def test_config_supplements_hardcoded_registry(self, tmp_path) -> None:
+        """Config packages not in PYTHON_DEV_TOOLS still get classified as DEV_TOOL."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "myapp"\n\n'
+            "[project.optional-dependencies]\n"
+            'dev = ["custom_linter"]\n'
+        )
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="custom_linter", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg, project_root=tmp_path)
+        ext = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        assert len(ext) == 1
+        assert ext[0].role == DependencyRole.DEV_TOOL
+
+    def test_hardcoded_registry_takes_priority(self, tmp_path) -> None:
+        """If a package is in both hardcoded and config, it stays DEV_TOOL (no misclassification)."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "myapp"\n\n'
+            "[project.optional-dependencies]\n"
+            'dev = ["pytest"]\n'
+        )
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="pytest", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg, project_root=tmp_path)
+        ext = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        assert ext[0].role == DependencyRole.DEV_TOOL
+
+    def test_no_config_file_falls_back_to_hardcoded(self) -> None:
+        """Without project_root, only hardcoded registry classifies."""
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="pytest", kind="IMPORTS"),
+            Edge(source="app", target="custom_linter", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg)
+        ext = {str(n.fqn): n for n in result.nodes if n.kind == FQNKind.EXTERNAL}
+        assert ext["pytest"].role == DependencyRole.DEV_TOOL
+        assert ext["custom_linter"].role == DependencyRole.UNKNOWN
+
+    def test_setup_cfg_fallback(self, tmp_path) -> None:
+        """setup.cfg [options.extras_require] is used when no pyproject.toml extras exist."""
+        setup_cfg = tmp_path / "setup.cfg"
+        setup_cfg.write_text(
+            "[options.extras_require]\n"
+            "dev =\n"
+            "    pytest>=8.2\n"
+            "    custom_linter\n"
+        )
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="custom_linter", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg, project_root=tmp_path)
+        ext = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        assert len(ext) == 1
+        assert ext[0].role == DependencyRole.DEV_TOOL
+
+    def test_pyproject_takes_priority_over_setup_cfg(self, tmp_path) -> None:
+        """When pyproject.toml has extras, setup.cfg is not consulted."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "myapp"\n\n'
+            "[project.optional-dependencies]\n"
+            'dev = ["pytest"]\n'
+        )
+        setup_cfg = tmp_path / "setup.cfg"
+        setup_cfg.write_text(
+            "[options.extras_require]\n"
+            "dev =\n"
+            "    other_tool\n"
+        )
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="other_tool", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg, project_root=tmp_path)
+        ext = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        # other_tool is only in setup.cfg, not in pyproject extras, so UNKNOWN
+        assert ext[0].role == DependencyRole.UNKNOWN
+
+    def test_non_dev_extras_not_classified(self, tmp_path) -> None:
+        """Extras like 'postgres' or 'gpu' are not dev tools and stay UNKNOWN."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "myapp"\n\n'
+            "[project.optional-dependencies]\n"
+            'postgres = ["psycopg2"]\n'
+        )
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="psycopg2", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg, project_root=tmp_path)
+        ext = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        assert len(ext) == 1
+        assert ext[0].role == DependencyRole.UNKNOWN
+
+    def test_malformed_pyproject_toml_no_error(self, tmp_path) -> None:
+        """Malformed pyproject.toml doesn't crash, falls back to hardcoded."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text("this is not valid toml {{{")
+        nodes = [
+            FQNNode(fqn=FQN.from_dotted("app"), kind=FQNKind.MODULE, file_path="app/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+        ]
+        edges = [
+            Edge(source="app", target="pytest", kind="IMPORTS"),
+        ]
+        adg = ADG(nodes=nodes, edges=edges)
+        result = add_external_nodes(adg, project_root=tmp_path)
+        ext = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL]
+        assert ext[0].role == DependencyRole.DEV_TOOL
+
+    def test_merge_constraints_with_project_root(self, tmp_path) -> None:
+        """merge_constraints also classifies via project config."""
+        pyproject = tmp_path / "pyproject.toml"
+        pyproject.write_text(
+            '[project]\nname = "myapp"\n\n'
+            "[project.optional-dependencies]\n"
+            'dev = ["custom_linter"]\n'
+        )
+        sc = SymbolicConstraint(
+            subject_role_general="app.services",
+            subject_role_specific="service",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object_role_general="custom_linter",
+            object_role_specific="linter",
+            justification="No custom linter.",
+            extraction_text="No custom linter",
+            adr_id="ADR-012",
+            adr_path="docs/adr/012.md",
+        )
+        adg = ADG(
+            nodes=[
+                FQNNode(fqn=FQN.from_dotted("app.services"), kind=FQNKind.MODULE, file_path="app/services/__init__.py", line_start=0, line_end=0, start_byte=0, end_byte=0),
+            ],
+            edges=[],
+        )
+        result = merge_constraints(adg, [sc], project_root=tmp_path)
+        ext = [n for n in result.nodes if n.kind == FQNKind.EXTERNAL and str(n.fqn) == "custom_linter"]
+        assert len(ext) == 1
+        assert ext[0].role == DependencyRole.DEV_TOOL

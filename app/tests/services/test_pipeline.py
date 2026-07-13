@@ -32,6 +32,7 @@ from services.pipeline import (
     augment_immutable,
     pattern_specificity,
 )
+from services.cpt.dismissal import Dismissal
 
 
 # ---------------------------------------------------------------------------
@@ -300,3 +301,87 @@ class TestADGPipelineRunPrepared:
         result = pipeline.run_prepared(inputs)
 
         assert result.violations == []
+
+
+# ---------------------------------------------------------------------------
+# ADGPipeline.run_with_dismissals
+# ---------------------------------------------------------------------------
+
+
+def _make_violations() -> list:
+    """Create real Violation objects using detect() for testing dismissal filtering."""
+    from services.cpt.engine import detect
+
+    adg = ADG(
+        nodes=[
+            FQNNode(fqn=FQN.from_dotted("app.service.UserService"), kind=FQNKind.CLASS,
+                    file_path="app/service.py", line_start=1, line_end=10),
+            FQNNode(fqn=FQN.from_dotted("app.repo.UserRepo"), kind=FQNKind.CLASS,
+                    file_path="app/repo.py", line_start=1, line_end=10),
+        ],
+        edges=[
+            Edge(source="app.service.UserService", target="app.repo.UserRepo", kind="CALLS"),
+            Edge(source="app.service.UserService", target="app.repo.UserRepo", kind="IMPORTS"),
+        ],
+        constraint_edges=[
+            ConstraintEdge(
+                subject="app.service.*",
+                predicate=PredicateType.PROHIBITS_DEPENDENCY,
+                object="app.repo.*",
+                justification="Services must not depend on repos",
+                adr_id="ADR-001",
+                adr_path="docs/adr/001.md",
+                specificity=2.0,
+            ),
+        ],
+    )
+    diff_result = DiffResult(
+        commit_sha="abc123",
+        changed_fqns=[
+            ChangedFQN(
+                fqn=FQN.from_dotted("app.service.UserService"),
+                change_type="modified",
+                file_path="app/service.py",
+                enclosing_module=FQN.from_dotted("app.service"),
+            ),
+        ],
+    )
+    result = detect(diff_result, adg)
+    assert len(result.violations) > 0, "Test setup: need at least one violation"
+    return result
+
+
+class TestADGPipelineRunWithDismissals:
+    def test_filters_dismissed_violations(self):
+        result = _make_violations()
+        # Dismiss the first violation
+        dismissals = [Dismissal.from_violation(result.violations[0])]
+
+        from services.cpt.dismissal import filter_dismissed
+        filtered = filter_dismissed(result.violations, dismissals)
+        assert len(filtered) == len(result.violations) - 1
+
+    def test_no_dismissals_returns_all(self):
+        result = _make_violations()
+        from services.cpt.dismissal import filter_dismissed
+        filtered = filter_dismissed(result.violations, [])
+        assert len(filtered) == len(result.violations)
+
+    def test_all_dismissed_returns_empty(self):
+        result = _make_violations()
+        from services.cpt.dismissal import filter_dismissed
+        dismissals = [Dismissal.from_violation(v) for v in result.violations]
+        filtered = filter_dismissed(result.violations, dismissals)
+        assert len(filtered) == 0
+
+    def test_preserves_orphans_and_self_loops(self):
+        result = _make_violations()
+        from services.cpt.engine import CPTResult
+        dismissals = [Dismissal.from_violation(v) for v in result.violations]
+        filtered_result = CPTResult(
+            violations=[],
+            orphans=result.orphans,
+            self_loop_constraints=result.self_loop_constraints,
+        )
+        assert filtered_result.orphans == result.orphans
+        assert filtered_result.self_loop_constraints == result.self_loop_constraints

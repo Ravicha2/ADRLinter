@@ -15,10 +15,11 @@ import langextract as lx
 log = logging.getLogger(__name__)
 
 from services.extract.config import LangExtractConfig
-from services.extract.io import parse_adr_id
+from services.extract.io import parse_adr_id, parse_adr_status
 from services.extract.logging import ADRLogEntry, write_log
 from services.extract.prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
 from services.models import (
+    ADRStatus,
     ExtractionError,
     ExtractionResult,
     PredicateType,
@@ -200,6 +201,10 @@ class ADRExtractor:
                     error_type="file_not_found",
                 )]
             )
+        status = parse_adr_status(text)
+        if status is ADRStatus.REJECTED:
+            log.info("extract_from_file: skipping rejected ADR %s", adr_path)
+            return ExtractionResult()
         adr_id = parse_adr_id(str(adr_path))
         return self.extract_constraints(text, adr_id, str(adr_path))
 

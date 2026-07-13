@@ -19,6 +19,7 @@ from services.models import (
     ADG,
     ChangedFQN,
     ConstraintEdge,
+    DependencyRole,
     DiffResult,
     Edge,
     FileChange,
@@ -905,3 +906,211 @@ class TestSelfLoopConstraint:
         # Self-loop filtered out, surfaced separately
         assert len(result.self_loop_constraints) == 1
         assert result.self_loop_constraints[0].adr_id == "ADR-010"
+
+
+# ===========================================================================
+# 8. DEV_TOOL filtering in reachability
+# ===========================================================================
+
+
+class TestDevToolFiltering:
+    """DEV_TOOL nodes are excluded from reachability traversal."""
+
+    def test_reachable_nodes_skips_dev_tool(self) -> None:
+        from services.cpt.engine import _reachable_nodes, _build_adjacency
+
+        adjacency = _build_adjacency({
+            Edge(source="app.api", target="pytest", kind="IMPORTS"),
+            Edge(source="pytest", target="pytest.fixture", kind="CONTAINS"),
+        })
+        node_roles = {
+            "app.api": DependencyRole.INTERNAL,
+            "pytest": DependencyRole.DEV_TOOL,
+            "pytest.fixture": DependencyRole.DEV_TOOL,
+        }
+        reachable = _reachable_nodes(
+            "app.api", adjacency, {"IMPORTS", "CONTAINS"},
+            node_roles=node_roles, skip_roles={DependencyRole.DEV_TOOL},
+        )
+        assert "pytest" not in reachable
+        assert "pytest.fixture" not in reachable
+
+    def test_reachable_nodes_includes_unknown_external(self) -> None:
+        from services.cpt.engine import _reachable_nodes, _build_adjacency
+
+        adjacency = _build_adjacency({
+            Edge(source="app.api", target="flask", kind="IMPORTS"),
+        })
+        node_roles = {
+            "app.api": DependencyRole.INTERNAL,
+            "flask": DependencyRole.UNKNOWN,
+        }
+        reachable = _reachable_nodes(
+            "app.api", adjacency, {"IMPORTS"},
+            node_roles=node_roles, skip_roles={DependencyRole.DEV_TOOL},
+        )
+        assert "flask" in reachable
+
+    def test_prohibits_dependency_ignores_dev_tool_path(self) -> None:
+        """A module importing pytest should NOT trigger PROHIBITS_DEPENDENCY."""
+        from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="pytest",
+            justification="API must not depend on pytest.",
+            adr_id="ADR-DT1",
+            adr_path="docs/adr/dt1.md",
+        )
+        adjacency = _build_adjacency({
+            Edge(source="app.api.users", target="pytest", kind="IMPORTS"),
+        })
+        node_roles = {
+            "app.api.users": DependencyRole.INTERNAL,
+            "pytest": DependencyRole.DEV_TOOL,
+        }
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api.users"), MatchStatus.WILDCARD)],
+                object_matches=[(FQN.from_dotted("pytest"), MatchStatus.EXACT)],
+            ),
+        }
+        violations = check_structural_predicates(matched, adjacency, node_roles=node_roles)
+        assert len(violations) == 0
+
+    def test_prohibits_dependency_flags_unknown_external(self) -> None:
+        """A module importing flask SHOULD trigger PROHIBITS_DEPENDENCY."""
+        from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="flask",
+            justification="API must not depend on flask.",
+            adr_id="ADR-DT2",
+            adr_path="docs/adr/dt2.md",
+        )
+        adjacency = _build_adjacency({
+            Edge(source="app.api.users", target="flask", kind="IMPORTS"),
+        })
+        node_roles = {
+            "app.api.users": DependencyRole.INTERNAL,
+            "flask": DependencyRole.UNKNOWN,
+        }
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api.users"), MatchStatus.WILDCARD)],
+                object_matches=[(FQN.from_dotted("flask"), MatchStatus.EXACT)],
+            ),
+        }
+        violations = check_structural_predicates(matched, adjacency, node_roles=node_roles)
+        assert len(violations) == 1
+
+    def test_prohibits_dependency_suppresses_dev_tool_object(self) -> None:
+        """PROHIBITS_DEPENDENCY with DEV_TOOL object is suppressed entirely."""
+        from services.cpt.engine import MatchedConstraint, check_structural_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.api.*",
+            predicate=PredicateType.PROHIBITS_DEPENDENCY,
+            object="pytest",
+            justification="API must not depend on pytest.",
+            adr_id="ADR-DT3",
+            adr_path="docs/adr/dt3.md",
+        )
+        adjacency = _build_adjacency({
+            Edge(source="app.api.users", target="pytest", kind="IMPORTS"),
+        })
+        node_roles = {
+            "app.api.users": DependencyRole.INTERNAL,
+            "pytest": DependencyRole.DEV_TOOL,
+        }
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api.users"), MatchStatus.WILDCARD)],
+                object_matches=[(FQN.from_dotted("pytest"), MatchStatus.EXACT)],
+            ),
+        }
+        violations = check_structural_predicates(matched, adjacency, node_roles=node_roles)
+        assert len(violations) == 0
+
+    def test_requires_dependency_suppresses_dev_tool_object(self) -> None:
+        """REQUIRES_DEPENDENCY targeting a DEV_TOOL produces no violation."""
+        from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.*",
+            predicate=PredicateType.REQUIRES_DEPENDENCY,
+            object="pytest",
+            justification="Must use pytest for testing.",
+            adr_id="ADR-DT4",
+            adr_path="docs/adr/dt4.md",
+        )
+        adjacency = _build_adjacency({
+            Edge(source="app", target="app.api", kind="CONTAINS"),
+        })
+        node_roles = {
+            "app": DependencyRole.INTERNAL,
+            "app.api": DependencyRole.INTERNAL,
+            "pytest": DependencyRole.DEV_TOOL,
+        }
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api"), MatchStatus.WILDCARD)],
+                object_matches=[(FQN.from_dotted("pytest"), MatchStatus.EXACT)],
+            ),
+        }
+        changed = [ChangedFQN(
+            fqn=FQN.from_dotted("app.api.users"),
+            change_type="added",
+            file_path="app/api/users.py",
+            enclosing_module=FQN.from_dotted("app.api"),
+        )]
+        violations = check_change_triggered_predicates(matched, adjacency, changed, node_roles=node_roles)
+        assert len(violations) == 0
+
+    def test_requires_dependency_flags_unknown_object(self) -> None:
+        """REQUIRES_DEPENDENCY targeting an UNKNOWN (application) object still produces violation."""
+        from services.cpt.engine import MatchedConstraint, check_change_triggered_predicates, _build_adjacency
+        from services.resolver import MatchStatus
+
+        constraint = ConstraintEdge(
+            subject="app.*",
+            predicate=PredicateType.REQUIRES_DEPENDENCY,
+            object="django",
+            justification="Must use Django.",
+            adr_id="ADR-DT5",
+            adr_path="docs/adr/dt5.md",
+        )
+        adjacency = _build_adjacency({
+            Edge(source="app", target="app.api", kind="CONTAINS"),
+        })
+        node_roles = {
+            "app": DependencyRole.INTERNAL,
+            "app.api": DependencyRole.INTERNAL,
+            "django": DependencyRole.UNKNOWN,
+        }
+        matched = {
+            id(constraint): MatchedConstraint(
+                constraint=constraint,
+                subject_matches=[(FQN.from_dotted("app.api"), MatchStatus.WILDCARD)],
+                object_matches=[(FQN.from_dotted("django"), MatchStatus.EXACT)],
+            ),
+        }
+        changed = [ChangedFQN(
+            fqn=FQN.from_dotted("app.api.users"),
+            change_type="added",
+            file_path="app/api/users.py",
+            enclosing_module=FQN.from_dotted("app.api"),
+        )]
+        violations = check_change_triggered_predicates(matched, adjacency, changed, node_roles=node_roles)
+        assert len(violations) == 1

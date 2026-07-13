@@ -14,6 +14,20 @@ class FQNKind(Enum):
     EXTERNAL = "external"
 
 
+class DependencyRole(Enum):
+    INTERNAL = "internal"
+    DEV_TOOL = "dev_tool"
+    INFRASTRUCTURE = "infrastructure"
+    APPLICATION = "application"
+    UNKNOWN = "unknown"
+
+
+class ADRStatus(Enum):
+    ACCEPTED = "accepted"
+    SUPERSEDED = "superseded"
+    REJECTED = "rejected"
+
+
 @dataclass
 class FQNNode:
     fqn: FQN
@@ -23,6 +37,7 @@ class FQNNode:
     line_end: int
     start_byte: int = 0
     end_byte: int = 0
+    role: DependencyRole = DependencyRole.INTERNAL
 
 
 @dataclass(frozen=True)

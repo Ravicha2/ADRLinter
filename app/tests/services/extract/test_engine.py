@@ -14,6 +14,7 @@ Integration tests with real LLM calls are in test_langextract_eval.py.
 from __future__ import annotations
 
 import os
+import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -813,3 +814,92 @@ class TestConfigFromYaml:
         extractor = ADRExtractor(config=config)
         assert extractor.config.model_id == "google/gemini-3.1-flash-lite"
         assert extractor.config.model_url == "https://openrouter.ai/api/v1"
+
+
+# ===========================================================================
+# 9. ADRExtractor.extract_from_file: status filter
+# ===========================================================================
+
+
+class TestExtractFromFileStatusFilter:
+    """extract_from_file skips rejected ADRs without calling the LLM."""
+
+    ADR_REJECTED_TEXT = """\
+# ADR-002: Use MongoDB
+
+## Status
+
+Rejected
+
+## Decision
+
+We considered MongoDB but decided against it.
+"""
+
+    ADR_SUPERSEDED_TEXT = """\
+# ADR-006: Use Flask
+
+## Status
+
+Superceded by ADR-010
+
+## Decision
+
+We will use Flask.
+"""
+
+    @patch("services.extract.engine.lx.extract")
+    def test_rejected_adr_returns_empty_result(self, mock_extract: MagicMock) -> None:
+        """A rejected ADR returns an empty ExtractionResult with no LLM call."""
+        from services.extract import ADRExtractor, LangExtractConfig
+
+        config = LangExtractConfig(api_key_env="TEST_API_KEY")
+        extractor = ADRExtractor(config=config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            adr_path = Path(tmpdir) / "002-use-mongodb.md"
+            adr_path.write_text(self.ADR_REJECTED_TEXT, encoding="utf-8")
+
+            result = extractor.extract_from_file(adr_path)
+
+        assert result.constraints == []
+        assert result.errors == []
+        mock_extract.assert_not_called()
+
+    @patch("services.extract.engine.lx.extract")
+    def test_accepted_adr_extracts_normally(self, mock_extract: MagicMock) -> None:
+        """An accepted ADR proceeds through normal extraction."""
+        from services.extract import ADRExtractor, LangExtractConfig
+
+        mock_extract.return_value = _make_langextract_result([_make_extraction()])
+
+        config = LangExtractConfig(api_key_env="TEST_API_KEY")
+        extractor = ADRExtractor(config=config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            adr_path = Path(tmpdir) / "001-mysql-storage.md"
+            adr_path.write_text(ADR_001_TEXT, encoding="utf-8")
+
+            result = extractor.extract_from_file(adr_path)
+
+        assert len(result.constraints) == 1
+        mock_extract.assert_called_once()
+
+    @patch("services.extract.engine.lx.extract")
+    def test_superseded_adr_extracts_normally(self, mock_extract: MagicMock) -> None:
+        """A superseded ADR is not skipped; it produces constraints normally."""
+        from services.extract import ADRExtractor, LangExtractConfig
+
+        mock_extract.return_value = _make_langextract_result([_make_extraction()])
+
+        config = LangExtractConfig(api_key_env="TEST_API_KEY")
+        extractor = ADRExtractor(config=config)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            adr_path = Path(tmpdir) / "006-use-flask.md"
+            adr_path.write_text(self.ADR_SUPERSEDED_TEXT, encoding="utf-8")
+
+            result = extractor.extract_from_file(adr_path)
+
+        assert len(result.constraints) == 1
+        mock_extract.assert_called_once()

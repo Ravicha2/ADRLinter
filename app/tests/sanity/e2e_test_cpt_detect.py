@@ -194,6 +194,7 @@ def main() -> None:
         constraints=all_constraints,
         diff_result=diff_result,
         commit_diff=mock_diff,
+        project_root=repo_path,
     )
     cpt_result = pipeline.run_prepared(pipeline_inputs)
 
