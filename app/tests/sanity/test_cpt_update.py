@@ -80,6 +80,7 @@ def main() -> None:
 
     # --- Step 2: detect on SAFE commit (may have false positives) ---
     print(f"\n--- Step 2: detect on safe commit ({safe_sha[:8]}) ---")
+    print("Expect Violation: None")
     result = runner.invoke(app, ["violation", "list", "--repo", REPO, "--commit", safe_sha])
     check("detection ran", result.exit_code == 0, f"exit={result.exit_code}")
     print(result.output)
@@ -101,6 +102,7 @@ def main() -> None:
 
     # --- Step 4: verify dismissals hold on safe commit (no active violations) ---
     print(f"\n--- Step 4: violation list on safe commit (dismissals should filter all) ---")
+    print("=== Expect Violation: None ===")
     result = runner.invoke(app, ["violation", "list", "--repo", REPO, "--commit", safe_sha])
     check("detection ran", result.exit_code == 0, f"exit={result.exit_code}")
     all_filtered = "No active violations" in result.output
@@ -123,6 +125,9 @@ def main() -> None:
     # The unsafe commit introduces DIFFERENT violations (different matched_fqn / subject / object),
     # so they should NOT be filtered by the previous dismissals.
     print(f"\n--- Step 6: detect on unsafe commit ({unsafe_sha[:8]}) ---")
+    print("=== Expect violation: " \
+    "users route imports model directly, skips auth" \
+    "user not implement auth on route")
     result = runner.invoke(app, ["violation", "list", "--repo", REPO, "--commit", unsafe_sha])
     check("detection ran", result.exit_code == 0, f"exit={result.exit_code}")
     print(result.output)
