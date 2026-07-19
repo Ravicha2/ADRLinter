@@ -70,12 +70,12 @@ class FileChange:
 
 
 @dataclass
-class CommitDiff:
-    commit_sha: str
-    parent_sha: str | None  # None for first commit
+class Diff:
+    to_sha: str
+    from_sha: str | None  # None for first commit
     changed_files: list[FileChange] = field(default_factory=list)
-    file_contents: dict[str, bytes] = field(default_factory=dict)  # path -> content at commit SHA
-    parent_contents: dict[str, bytes] = field(default_factory=dict)  # path -> content at parent SHA
+    file_contents: dict[str, bytes] = field(default_factory=dict)  # path -> content at to_sha
+    from_contents: dict[str, bytes] = field(default_factory=dict)  # path -> content at from_sha
 
 
 @dataclass
@@ -89,8 +89,8 @@ class ChangedFQN:
 
 @dataclass
 class DiffResult:
-    commit_sha: str
-    parent_sha: str | None = None
+    to_sha: str
+    from_sha: str | None = None
     changed_files: list[FileChange] = field(default_factory=list)  # for ADG Update
     changed_fqns: list[ChangedFQN] = field(default_factory=list)  # for CPT
 

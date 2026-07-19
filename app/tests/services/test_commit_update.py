@@ -190,7 +190,7 @@ class TestCommitUpdate:
         assert len(stored_edges) >= 1
 
         # Run commit_update
-        result = commit_update(neo4j_store, flask_repo, commit_sha=None)
+        result = commit_update(neo4j_store, flask_repo, to_sha=None)
 
         # Constraint edges preserved in Neo4j
         after_edges = neo4j_store.load_all_constraint_edges()
@@ -230,7 +230,7 @@ class TestCommitUpdate:
         )
         neo4j_store.store_dismissal(dismissal)
 
-        result = commit_update(neo4j_store, flask_repo, commit_sha=None)
+        result = commit_update(neo4j_store, flask_repo, to_sha=None)
 
         # Dismissals still exist in Neo4j
         after_dismissals = neo4j_store.load_dismissals()
@@ -258,7 +258,7 @@ class TestCommitUpdate:
         )
         neo4j_store.store_adg(adg_with_constraint)
 
-        result = commit_update(neo4j_store, flask_repo, commit_sha=None)
+        result = commit_update(neo4j_store, flask_repo, to_sha=None)
 
         # Constraint edges preserved
         assert result.constraint_edges_preserved >= 1

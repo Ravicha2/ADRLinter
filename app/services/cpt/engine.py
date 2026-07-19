@@ -280,7 +280,7 @@ if __name__ == "__main__":
     )
 
     diff = DiffResult(
-        commit_sha="abc123",
+        to_sha="abc123",
         changed_fqns=[
             ChangedFQN(
                 fqn=FQN.from_dotted_safe("app.service.UserService"),

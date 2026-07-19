@@ -66,13 +66,13 @@ _MOCK_REPO_CFG = RepoConfig(id="test-repo", url="/tmp/test-repo", adr_dir="docs/
 
 def _make_detection_result(violations: list[Violation] | None = None) -> DetectionResult:
     cpt_result = _make_cpt_result(violations)
-    mock_commit_diff = MagicMock()
-    mock_commit_diff.commit_sha = "abc123def456"
-    mock_commit_diff.parent_sha = "parent123"
+    mock_diff = MagicMock()
+    mock_diff.to_sha = "abc123def456"
+    mock_diff.from_sha = "parent123"
     return DetectionResult(
         cpt_result=cpt_result,
-        commit_diff=mock_commit_diff,
-        diff_result=DiffResult(commit_sha="abc123def456", changed_files=[], changed_fqns=[]),
+        diff=mock_diff,
+        diff_result=DiffResult(to_sha="abc123def456", changed_files=[], changed_fqns=[]),
         repo_cfg=_MOCK_REPO_CFG,
         repo_path=Path("/tmp/test-repo"),
     )

@@ -10,13 +10,13 @@ from services.extract.engine import ADRExtractor
 from services.extract.io import is_adr_file, parse_adr_id, parse_adr_status
 from services.extract.logging import ADRLogEntry
 from services.extract.prompts import FEW_SHOT_EXAMPLES, PROMPT_DESCRIPTION
-from services.models import ADRStatus, CommitDiff, ExtractionError, ExtractionResult
+from services.models import ADRStatus, Diff, ExtractionError, ExtractionResult
 
 log = logging.getLogger(__name__)
 
 
 def extract_changed_adrs(
-    diff: CommitDiff,
+    diff: Diff,
     adr_dir: str,
     config: LangExtractConfig,
     log_path: Path | None = None,

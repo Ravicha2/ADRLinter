@@ -1,14 +1,14 @@
 """Diff Processor: identify changed FQNs from a git commit diff."""
 
 from services.fqn import FQN
-from services.models import ADG, ChangedFQN, CommitDiff, DiffResult, FileChange, FQNKind
+from services.models import ADG, ChangedFQN, Diff, DiffResult, FileChange, FQNKind
 from services.adg import parse_file
 
-def process_diff(commit_diff: CommitDiff) -> DiffResult:
-    """Process a CommitDiff and return changed FQNs and file changes"""
+def process_diff(diff: Diff) -> DiffResult:
+    """Process a Diff and return changed FQNs and file changes"""
     changed_fqns: list[ChangedFQN] = []
 
-    for file_change in commit_diff.changed_files:
+    for file_change in diff.changed_files:
         path = file_change.path
 
         if not path.endswith(".py"):
@@ -19,7 +19,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
         before = len(changed_fqns)
 
         if status == "added":
-            source = commit_diff.file_contents.get(path, b"")
+            source = diff.file_contents.get(path, b"")
             if source:
                 nodes, _ = parse_file(source, module_fqn, path)
                 for node in nodes:
@@ -27,7 +27,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                         make_changed_fqn(node, "added", path, module_fqn)
                     )
         elif status == "deleted":
-            source = commit_diff.parent_contents.get(path, b"")
+            source = diff.from_contents.get(path, b"")
             if source:
                 nodes, _ = parse_file(source, module_fqn, path)
                 for node in nodes:
@@ -36,8 +36,8 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                     )
 
         elif status == "modified":
-            old_source = commit_diff.parent_contents.get(path, b"")
-            new_source = commit_diff.file_contents.get(path, b"")
+            old_source = diff.from_contents.get(path, b"")
+            new_source = diff.file_contents.get(path, b"")
             old_nodes, _ = parse_file(old_source, module_fqn, path)
             new_nodes, _ = parse_file(new_source, module_fqn, path)
 
@@ -70,7 +70,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
             old_path = file_change.old_path or path
             old_module = FQN.from_path(old_path)
 
-            old_source = commit_diff.parent_contents.get(old_path, b"")
+            old_source = diff.from_contents.get(old_path, b"")
             if old_source:
                 nodes, _ = parse_file(old_source, old_module, old_path)
                 for node in nodes:
@@ -78,7 +78,7 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
                         make_changed_fqn(node, "deleted", old_path, old_module)
                     )
 
-            new_source = commit_diff.file_contents.get(path, b"")
+            new_source = diff.file_contents.get(path, b"")
             if new_source:
                 nodes, _ = parse_file(new_source, module_fqn, path)
                 for node in nodes:
@@ -91,12 +91,12 @@ def process_diff(commit_diff: CommitDiff) -> DiffResult:
         # still has a starting point. Covers settings.py / config.py edits that
         # only touch module-level assignments.
         if len(changed_fqns) == before:
-            _maybe_emit_module_fqn(changed_fqns, file_change, module_fqn, commit_diff)
+            _maybe_emit_module_fqn(changed_fqns, file_change, module_fqn, diff)
 
     return DiffResult(
-        commit_sha=commit_diff.commit_sha,
-        parent_sha=commit_diff.parent_sha,
-        changed_files=commit_diff.changed_files,
+        to_sha=diff.to_sha,
+        from_sha=diff.from_sha,
+        changed_files=diff.changed_files,
         changed_fqns=changed_fqns,
     )
 
@@ -121,13 +121,13 @@ def _maybe_emit_module_fqn(
         changed_fqns: list[ChangedFQN],
         file_change: FileChange,
         module_fqn: FQN,
-        commit_diff: CommitDiff,
+        diff: Diff,
 ) -> None:
     """Emit a module-level ChangedFQN if the .py file bytes changed but no def FQN was produced."""
     status = file_change.status
     path = file_change.path
-    new_src = commit_diff.file_contents.get(path, b"")
-    old_src = commit_diff.parent_contents.get(path, b"")
+    new_src = diff.file_contents.get(path, b"")
+    old_src = diff.from_contents.get(path, b"")
 
     if status == "added" and new_src:
         change_type = "added"
@@ -137,7 +137,7 @@ def _maybe_emit_module_fqn(
         change_type = "modified"
     elif status == "renamed":
         old_path = file_change.old_path or path
-        if commit_diff.parent_contents.get(old_path, b"") or new_src:
+        if diff.from_contents.get(old_path, b"") or new_src:
             change_type = "added"
         else:
             return
@@ -155,7 +155,7 @@ def _maybe_emit_module_fqn(
     )
 
 
-def augment_adg(adg: ADG, commit_diff: CommitDiff) -> None:
+def augment_adg(adg: ADG, diff: Diff) -> None:
     """Merge new/modified file contents from a diff into the ADG in-place.
 
     Without this, BFS from added FQNs can't expand because those nodes
@@ -169,15 +169,15 @@ def augment_adg(adg: ADG, commit_diff: CommitDiff) -> None:
     existing_edges = {(e.source, e.target, e.kind) for e in adg.edges}
     diff_sources: dict[FQN, bytes] = {}
 
-    for file_change in commit_diff.changed_files:
+    for file_change in diff.changed_files:
         path = file_change.path
         if not path.endswith(".py"):
             continue
         # Use new content for added/modified, old content for deleted
         if file_change.status in ("added", "modified"):
-            source = commit_diff.file_contents.get(path, b"")
+            source = diff.file_contents.get(path, b"")
         elif file_change.status == "renamed":
-            source = commit_diff.file_contents.get(path, b"")
+            source = diff.file_contents.get(path, b"")
         else:
             continue
         if not source:

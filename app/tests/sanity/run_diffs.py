@@ -17,7 +17,7 @@ from rich.table import Table
 
 from services.cpt import process_diff
 from services.graph.connector import GraphStore
-from services.models import CommitDiff, FileChange
+from services.models import Diff, FileChange
 from services.pipeline import ADGPipeline, PipelineInputs
 
 console = Console()
@@ -25,17 +25,17 @@ console = Console()
 DIFF_DIR = Path(sys.argv[1] if len(sys.argv) > 1 else "../dataset-ADRLinter/small/incoming_diff")
 
 
-def load_commit_diff(path: Path) -> CommitDiff:
+def load_diff(path: Path) -> Diff:
     data = json.loads(path.read_text())
-    return CommitDiff(
-        commit_sha=data["commit_sha"],
-        parent_sha=data.get("parent_sha"),
+    return Diff(
+        to_sha=data["commit_sha"],
+        from_sha=data.get("parent_sha"),
         changed_files=[
             FileChange(path=f["path"], status=f["status"], old_path=f.get("old_path"))
             for f in data["changed_files"]
         ],
         file_contents={k: v.encode() for k, v in data.get("file_contents", {}).items()},
-        parent_contents={k: v.encode() for k, v in data.get("parent_contents", {}).items()},
+        from_contents={k: v.encode() for k, v in data.get("parent_contents", {}).items()},
     )
 
 
@@ -62,8 +62,8 @@ def main() -> None:
         console.print(f"[dim]{data.get('description', '')}[/]")
         console.print(f"[dim]expected_violation={data.get('expected_violation')} expected_adrs={data.get('expected_adrs')}[/]")
 
-        commit_diff = load_commit_diff(diff_path)
-        diff_result = process_diff(commit_diff)
+        diff = load_diff(diff_path)
+        diff_result = process_diff(diff)
 
         if not diff_result.changed_fqns:
             console.print("[yellow]No changed FQNs detected.[/]")
@@ -82,7 +82,7 @@ def main() -> None:
             adg=adg,
             constraints=[],  # constraints already in ADG from seed
             diff_result=diff_result,
-            commit_diff=commit_diff,
+            diff=diff,
         )
         cpt_result = pipeline.run_prepared(pipeline_inputs)
 

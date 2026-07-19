@@ -15,7 +15,7 @@ from services.fqn import FQN
 from services.models import (
     ADG,
     ChangedFQN,
-    CommitDiff,
+    Diff,
     ConstraintEdge,
     DiffResult,
     Edge,
@@ -170,15 +170,15 @@ class TestAugmentImmutable:
         adg = ADG(nodes=[node], edges=[], constraint_edges=[])
         original_node_count = len(adg.nodes)
 
-        commit_diff = CommitDiff(
-            commit_sha="abc123",
-            parent_sha="def456",
+        diff = Diff(
+            to_sha="abc123",
+            from_sha="def456",
             changed_files=[FileChange(path="app/new_module.py", status="added")],
             file_contents={"app/new_module.py": b"def hello(): pass"},
-            parent_contents={},
+            from_contents={},
         )
 
-        result = augment_immutable(adg, commit_diff)
+        result = augment_immutable(adg, diff)
 
         # Input ADG should not be modified
         assert len(adg.nodes) == original_node_count
@@ -187,15 +187,15 @@ class TestAugmentImmutable:
 
     def test_returns_new_adg_instance(self):
         adg = ADG(nodes=[], edges=[], constraint_edges=[])
-        commit_diff = CommitDiff(
-            commit_sha="abc",
-            parent_sha=None,
+        diff = Diff(
+            to_sha="abc",
+            from_sha=None,
             changed_files=[],
             file_contents={},
-            parent_contents={},
+            from_contents={},
         )
 
-        result = augment_immutable(adg, commit_diff)
+        result = augment_immutable(adg, diff)
 
         assert result is not adg
 
@@ -243,7 +243,7 @@ class TestADGPipelineRunPrepared:
         adg = _make_adg()
         constraints = _make_constraints()
         diff_result = DiffResult(
-            commit_sha="abc123",
+            to_sha="abc123",
             changed_fqns=[
                 ChangedFQN(
                     fqn=FQN.from_dotted("app.service"),
@@ -294,7 +294,7 @@ class TestADGPipelineRunPrepared:
     def test_no_violations_on_clean_adg(self):
         """ADG with no constraint edges should produce zero violations."""
         adg = _make_adg()
-        diff_result = DiffResult(commit_sha="abc", changed_fqns=[])
+        diff_result = DiffResult(to_sha="abc", changed_fqns=[])
 
         pipeline = ADGPipeline()
         inputs = PipelineInputs(adg=adg, constraints=[], diff_result=diff_result)
@@ -336,7 +336,7 @@ def _make_violations() -> list:
         ],
     )
     diff_result = DiffResult(
-        commit_sha="abc123",
+        to_sha="abc123",
         changed_fqns=[
             ChangedFQN(
                 fqn=FQN.from_dotted("app.service.UserService"),

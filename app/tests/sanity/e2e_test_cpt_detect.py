@@ -19,7 +19,7 @@ from services.cpt.diff_processor import process_diff
 from services.extract import extract_all_adrs
 from services.extract.engine import derive_package_context
 from services.models import (
-    CommitDiff,
+    Diff,
     FileChange,
 )
 from services.pipeline import ADGPipeline, PipelineInputs
@@ -27,8 +27,8 @@ from services.pipeline import ADGPipeline, PipelineInputs
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
-def build_mock_diff(repo_name: str, repo_path: Path) -> CommitDiff:
-    """Build a mock CommitDiff using real repo source + a small modification."""
+def build_mock_diff(repo_name: str, repo_path: Path) -> Diff:
+    """Build a mock Diff using real repo source + a small modification."""
     if repo_name == "flask":
         # ==============================================================================
         # EXPECTED VIOLATIONS FOR 'flask' REPO:
@@ -48,9 +48,9 @@ def build_mock_diff(repo_name: str, repo_path: Path) -> CommitDiff:
         users_new = users_old + b"\n\ndef create_user_route(data):\n    user = User.create(data)\n    return jsonify(user)\n"
         auth_new = auth_old + b"\n\ndef refresh_token_route():\n    return jsonify({'token': 'new'})\n"
 
-        return CommitDiff(
-            commit_sha="deadbeef",
-            parent_sha="cafebabe",
+        return Diff(
+            to_sha="deadbeef",
+            from_sha="cafebabe",
             changed_files=[
                 FileChange(path=users_path, status="modified"),
                 FileChange(path=auth_path, status="modified"),
@@ -59,7 +59,7 @@ def build_mock_diff(repo_name: str, repo_path: Path) -> CommitDiff:
                 users_path: users_new,
                 auth_path: auth_new,
             },
-            parent_contents={
+            from_contents={
                 users_path: users_old,
                 auth_path: auth_old,
             },
@@ -76,16 +76,16 @@ def build_mock_diff(repo_name: str, repo_path: Path) -> CommitDiff:
         views_old = (repo_path / views_path).read_bytes()
         views_new = views_old + b"\n\ndef create_user_view(request):\n    user = User.objects.create(name='test')\n    return JsonResponse({'id': user.id})\n"
 
-        return CommitDiff(
-            commit_sha="deadbeef",
-            parent_sha="cafebabe",
+        return Diff(
+            to_sha="deadbeef",
+            from_sha="cafebabe",
             changed_files=[
                 FileChange(path=views_path, status="modified"),
             ],
             file_contents={
                 views_path: views_new,
             },
-            parent_contents={
+            from_contents={
                 views_path: views_old,
             },
         )
@@ -116,7 +116,7 @@ def build_mock_diff(repo_name: str, repo_path: Path) -> CommitDiff:
         key=lambda p: (-len(p.parts), str(p)),
     )
     if not py_files:
-        return CommitDiff(commit_sha="deadbeef", parent_sha="cafebabe", changed_files=[], file_contents={}, parent_contents={})
+        return Diff(to_sha="deadbeef", from_sha="cafebabe", changed_files=[], file_contents={}, from_contents={})
 
     file1_path = str(py_files[0])
     file1_old = (repo_path / file1_path).read_bytes()
@@ -124,7 +124,7 @@ def build_mock_diff(repo_name: str, repo_path: Path) -> CommitDiff:
 
     changed_files = [FileChange(path=file1_path, status="modified")]
     file_contents = {file1_path: file1_new}
-    parent_contents = {file1_path: file1_old}
+    from_contents = {file1_path: file1_old}
 
     if len(py_files) > 1:
         file2_path = str(py_files[1])
@@ -132,14 +132,14 @@ def build_mock_diff(repo_name: str, repo_path: Path) -> CommitDiff:
         file2_new = file2_old + b"\n\n# second mock modification\nimport django\n\ndef mock_second_function():\n    pass\n"
         changed_files.append(FileChange(path=file2_path, status="modified"))
         file_contents[file2_path] = file2_new
-        parent_contents[file2_path] = file2_old
+        from_contents[file2_path] = file2_old
 
-    return CommitDiff(
-        commit_sha="deadbeef",
-        parent_sha="cafebabe",
+    return Diff(
+        to_sha="deadbeef",
+        from_sha="cafebabe",
         changed_files=changed_files,
         file_contents=file_contents,
-        parent_contents=parent_contents,
+        from_contents=from_contents,
     )
 
 
@@ -193,7 +193,7 @@ def main() -> None:
         adg=adg,
         constraints=all_constraints,
         diff_result=diff_result,
-        commit_diff=mock_diff,
+        diff=mock_diff,
         project_root=repo_path,
     )
     cpt_result = pipeline.run_prepared(pipeline_inputs)

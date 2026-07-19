@@ -116,7 +116,7 @@ class TestE2EDetect:
         """app.api.orders calls app.repo.user, violating ADR-001."""
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=layered_constraints)
         diff = DiffResult(
-            commit_sha="abc123",
+            to_sha="abc123",
             changed_fqns=[_changed("app.api.orders")],
         )
         result = detect(diff, adg)
@@ -129,7 +129,7 @@ class TestE2EDetect:
         """app.api.orders doesn't import auth.middleware, violating ADR-002."""
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=layered_constraints)
         diff = DiffResult(
-            commit_sha="abc123",
+            to_sha="abc123",
             changed_fqns=[_changed("app.api.orders")],
         )
         result = detect(diff, adg)
@@ -141,7 +141,7 @@ class TestE2EDetect:
         """app.service.user imports auth.middleware, satisfying ADR-002."""
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=layered_constraints)
         diff = DiffResult(
-            commit_sha="abc123",
+            to_sha="abc123",
             changed_fqns=[_changed("app.service.user")],
         )
         result = detect(diff, adg)
@@ -153,7 +153,7 @@ class TestE2EDetect:
         """Two changed FQNs produce violations from both."""
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=layered_constraints)
         diff = DiffResult(
-            commit_sha="abc123",
+            to_sha="abc123",
             changed_fqns=[_changed("app.api.orders"), _changed("app.api.users")],
         )
         result = detect(diff, adg)
@@ -166,7 +166,7 @@ class TestE2EDetect:
         """Constraint with subject/object outside neighborhood becomes orphan."""
         orphan = _constraint("app.nonexistent.*", PredicateType.PROHIBITS_DEPENDENCY, "app.also.gone", "ADR-999")
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=[orphan])
-        diff = DiffResult(commit_sha="abc", changed_fqns=[_changed("app.api.users")])
+        diff = DiffResult(to_sha="abc", changed_fqns=[_changed("app.api.users")])
         result = detect(diff, adg)
 
         assert any(c.adr_id == "ADR-999" for c in result.orphans)
@@ -174,7 +174,7 @@ class TestE2EDetect:
     def test_clean_adg_no_violations(self, layered_adg: ADG) -> None:
         """No constraints = no violations."""
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=[])
-        diff = DiffResult(commit_sha="abc", changed_fqns=[_changed("app.api.users")])
+        diff = DiffResult(to_sha="abc", changed_fqns=[_changed("app.api.users")])
         result = detect(diff, adg)
 
         assert result.violations == []
@@ -187,7 +187,7 @@ class TestE2EDetect:
             _constraint("app.service", PredicateType.REQUIRES_IMPLEMENTATION, "app.auth.middleware", "ADR-006", specificity=3.0),
         ]
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=constraints)
-        diff = DiffResult(commit_sha="abc", changed_fqns=[_changed("app.service.user")])
+        diff = DiffResult(to_sha="abc", changed_fqns=[_changed("app.service.user")])
         result = detect(diff, adg)
 
         prohibit_violations = [v for v in result.violations if v.constraint.predicate == PredicateType.PROHIBITS_IMPLEMENTATION]
@@ -197,7 +197,7 @@ class TestE2EDetect:
     def test_result_type_shape(self, layered_adg: ADG, layered_constraints: list[ConstraintEdge]) -> None:
         """CPTResult has the expected fields."""
         adg = ADG(nodes=layered_adg.nodes, edges=layered_adg.edges, constraint_edges=layered_constraints)
-        diff = DiffResult(commit_sha="abc", changed_fqns=[_changed("app.api.orders")])
+        diff = DiffResult(to_sha="abc", changed_fqns=[_changed("app.api.orders")])
         result = detect(diff, adg)
 
         assert hasattr(result, "violations")

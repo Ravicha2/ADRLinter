@@ -44,7 +44,7 @@ def parse_int(output: str, pattern: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def get_commit_sha(repo: str, ref: str) -> str:
+def get_to_sha(repo: str, ref: str) -> str:
     from cli.main import _resolve_repo_path, _get_repo
     repo_cfg = _get_repo(repo)
     repo_path = _resolve_repo_path(repo_cfg)
@@ -63,8 +63,8 @@ def check(label: str, condition: bool, detail: str = "") -> bool:
 
 
 def main() -> None:
-    safe_sha = get_commit_sha(REPO, "HEAD~1")
-    unsafe_sha = get_commit_sha(REPO, "HEAD")
+    safe_sha = get_to_sha(REPO, "HEAD~1")
+    unsafe_sha = get_to_sha(REPO, "HEAD")
     print("=" * 60)
     print("CPT DISMISSAL IDENTITY SMOKE TEST")
     print(f"  safe commit:   {safe_sha[:8]} (compliant, possible false positives)")

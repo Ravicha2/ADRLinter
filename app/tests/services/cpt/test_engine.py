@@ -645,8 +645,8 @@ class TestDetect:
             constraint_edges=sample_constraints,
         )
         diff = DiffResult(
-            commit_sha="abc123",
-            parent_sha="def456",
+            to_sha="abc123",
+            from_sha="def456",
             changed_files=[FileChange(path="app/api/orders.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.orders")],
         )
@@ -664,8 +664,8 @@ class TestDetect:
             constraint_edges=sample_constraints,
         )
         diff = DiffResult(
-            commit_sha="abc123",
-            parent_sha="def456",
+            to_sha="abc123",
+            from_sha="def456",
             changed_files=[FileChange(path="app/api/users.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.users")],
         )
@@ -678,8 +678,8 @@ class TestDetect:
 
         adg = ADG(nodes=sample_adg.nodes, edges=sample_adg.edges, constraint_edges=[])
         diff = DiffResult(
-            commit_sha="abc123",
-            parent_sha="def456",
+            to_sha="abc123",
+            from_sha="def456",
             changed_files=[FileChange(path="app/api/users.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.users")],
         )
@@ -703,8 +703,8 @@ class TestDetect:
             constraint_edges=[orphan_constraint],
         )
         diff = DiffResult(
-            commit_sha="abc123",
-            parent_sha="def456",
+            to_sha="abc123",
+            from_sha="def456",
             changed_files=[FileChange(path="app/api/users.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.users")],
         )
@@ -741,8 +741,8 @@ class TestDetect:
             constraint_edges=constraints,
         )
         diff = DiffResult(
-            commit_sha="abc123",
-            parent_sha="def456",
+            to_sha="abc123",
+            from_sha="def456",
             changed_files=[FileChange(path="app/middleware/auth.py", status="modified")],
             changed_fqns=[_changed_fqn("app.middleware.auth")],
         )
@@ -861,8 +861,8 @@ class TestSelfLoopConstraint:
             constraint_edges=[self_loop],
         )
         diff = DiffResult(
-            commit_sha="abc123",
-            parent_sha="def456",
+            to_sha="abc123",
+            from_sha="def456",
             changed_files=[FileChange(path="app/auth/middleware.py", status="modified")],
             changed_fqns=[_changed_fqn("app.auth.middleware")],
         )
@@ -895,8 +895,8 @@ class TestSelfLoopConstraint:
             constraint_edges=[self_loop, normal],
         )
         diff = DiffResult(
-            commit_sha="abc123",
-            parent_sha="def456",
+            to_sha="abc123",
+            from_sha="def456",
             changed_files=[FileChange(path="app/api/users.py", status="modified")],
             changed_fqns=[_changed_fqn("app.api.users")],
         )

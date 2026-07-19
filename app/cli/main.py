@@ -19,7 +19,7 @@ from services.cpt.dismissal import Dismissal, filter_dismissed, violation_short_
 from services.extract import extract_all_adrs
 from services.extract.engine import derive_package_context
 from services.graph.connector import GraphStore
-from services.models import CommitDiff, DiffResult, FQNKind, SymbolicConstraint
+from services.models import Diff, DiffResult, FQNKind, SymbolicConstraint
 from services.commit_update import UpdateResult, commit_update
 from services.pipeline import ADGPipeline, PipelineInputs
 
@@ -29,7 +29,7 @@ console = Console()
 @dataclass
 class DetectionResult:
     cpt_result: "object"  # services.cpt.engine.CPTResult
-    commit_diff: CommitDiff
+    diff: Diff
     diff_result: DiffResult
     repo_cfg: RepoConfig
     repo_path: Path
@@ -74,7 +74,7 @@ def _resolve_repo_path(repo_cfg) -> Path:
     return path.resolve()
 
 
-def _run_detection(repo: str, commit: str | None) -> DetectionResult:
+def _run_detection(repo: str, commit: str | None, base: str | None = None, head: str | None = None) -> DetectionResult:
     """Shared detection pipeline. Loads ADG from Neo4j (seeded via `seed build`)."""
     from services.cpt.engine import CPTResult
 
@@ -87,12 +87,15 @@ def _run_detection(repo: str, commit: str | None) -> DetectionResult:
 
     adapter = GitAdapter()
     try:
-        commit_diff = adapter.get_commit_diff(repo_path, commit_sha=commit)
+        if base and head:
+            diff = adapter.get_pr_diff(repo_path, base_ref=base, head_ref=head)
+        else:
+            diff = adapter.get_diff(repo_path, to_sha=commit)
     except ValueError as e:
         console.print(f"[red]Git error:[/] {e}")
         raise typer.Exit(code=1)
 
-    diff_result: DiffResult = process_diff(commit_diff)
+    diff_result: DiffResult = process_diff(diff)
 
     # ponytail: load seeded ADG from Neo4j instead of re-parsing repo + re-extracting ADRs
     store = GraphStore(
@@ -110,13 +113,13 @@ def _run_detection(repo: str, commit: str | None) -> DetectionResult:
         adg=adg,
         constraints=[],  # constraints already in ADG from seed
         diff_result=diff_result,
-        commit_diff=commit_diff,
+        diff=diff,
     )
     cpt_result = pipeline.run_prepared(pipeline_inputs)
 
     return DetectionResult(
         cpt_result=cpt_result,
-        commit_diff=commit_diff,
+        diff=diff,
         diff_result=diff_result,
         repo_cfg=repo_cfg,
         repo_path=repo_path,
@@ -130,15 +133,24 @@ app.add_typer(violation_app, name="violation")
 def detect(
     repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
     commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
+    base: str | None = typer.Option(None, "--base", help="Base ref for PR diff (requires --head)"),
+    head: str | None = typer.Option(None, "--head", help="Head ref for PR diff (requires --base)"),
 ) -> None:
     """Run CPT violation detection on a repository."""
-    dr = _run_detection(repo, commit)
+    if (base and not head) or (head and not base):
+        console.print("[red]Error:[/] --base and --head must be used together")
+        raise typer.Exit(code=1)
 
-    console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
+    dr = _run_detection(repo, commit, base=base, head=head)
+
+    if base and head:
+        console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] ({base}...{head})")
+    else:
+        console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
     console.print()
-    console.print(f"[bold]Commit:[/] {dr.commit_diff.commit_sha[:6]}...")
-    if dr.commit_diff.parent_sha is not None:
-        console.print(f"[bold]Parent:[/] {dr.commit_diff.parent_sha[:6]}...")
+    console.print(f"[bold]To:[/] {dr.diff.to_sha[:6]}...")
+    if dr.diff.from_sha is not None:
+        console.print(f"[bold]From:[/] {dr.diff.from_sha[:6]}...")
 
     if dr.diff_result.changed_files:
         file_table = Table(title="Changed Files", show_lines=True)
@@ -236,7 +248,7 @@ def update(
     store.connect()
 
     try:
-        result = commit_update(store, repo_path, commit_sha=commit)
+        result = commit_update(store, repo_path, to_sha=commit)
     except RuntimeError as e:
         console.print(f"[red]Error:[/] {e}")
         store.close()
@@ -246,9 +258,9 @@ def update(
 
     console.print(f"[bold]Updating[/] [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
     console.print()
-    console.print(f"[bold]Commit:[/] {result.commit_sha[:6]}...")
-    if result.parent_sha is not None:
-        console.print(f"[bold]Parent:[/] {result.parent_sha[:6]}...")
+    console.print(f"[bold]To:[/] {result.to_sha[:6]}...")
+    if result.from_sha is not None:
+        console.print(f"[bold]From:[/] {result.from_sha[:6]}...")
 
     console.print(f"  Constraint edges preserved: {result.constraint_edges_preserved}")
     console.print(f"  Dismissals applied: {result.dismissals_applied}")

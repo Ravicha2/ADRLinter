@@ -24,7 +24,7 @@ from services.adg.merge import merge_constraints
 from services.cpt.dismissal import Dismissal, filter_dismissed
 from services.cpt.diff_processor import augment_adg, process_diff
 from services.cpt.engine import detect as cpt_detect
-from services.models import ADG, CommitDiff, ConstraintEdge, DiffResult, SymbolicConstraint
+from services.models import ADG, Diff, ConstraintEdge, DiffResult, SymbolicConstraint
 from services.resolver import MatchStatus
 
 
@@ -71,7 +71,7 @@ def adg_with_specificity(adg: ADG) -> ADG:
 # Mutation normalization
 # ---------------------------------------------------------------------------
 
-def augment_immutable(adg: ADG, commit_diff: CommitDiff) -> ADG:
+def augment_immutable(adg: ADG, diff: Diff) -> ADG:
     """Wrap the in-place augment_adg so it returns a fresh ADG.
 
     Callers never see their input ADG mutated.
@@ -81,7 +81,7 @@ def augment_immutable(adg: ADG, commit_diff: CommitDiff) -> ADG:
         edges=list(adg.edges),
         constraint_edges=list(adg.constraint_edges),
     )
-    augment_adg(clone, commit_diff)
+    augment_adg(clone, diff)
     return clone
 
 
@@ -95,7 +95,7 @@ class PipelineInputs:
     adg: ADG
     constraints: list[SymbolicConstraint]
     diff_result: DiffResult
-    commit_diff: CommitDiff | None = None
+    diff: Diff | None = None
     project_root: Path | None = None
 
 
@@ -116,8 +116,8 @@ class ADGPipeline:
         merged = merge_constraints(inputs.adg, inputs.constraints, project_root=inputs.project_root)
         merged = adg_with_specificity(merged)
 
-        if inputs.commit_diff is not None:
-            merged = augment_immutable(merged, inputs.commit_diff)
+        if inputs.diff is not None:
+            merged = augment_immutable(merged, inputs.diff)
 
         return cpt_detect(inputs.diff_result, merged)
 

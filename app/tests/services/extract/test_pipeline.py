@@ -2,7 +2,7 @@
 
 Public interface under test:
     is_adr_file(file_change: FileChange, adr_dir: str) -> bool
-    extract_changed_adrs(diff: CommitDiff, adr_dir: str, config: LangExtractConfig)
+    extract_changed_adrs(diff: Diff, adr_dir: str, config: LangExtractConfig)
         -> list[ExtractionResult]
     extract_all_adrs(repo_path: Path, adr_dir: str, config: LangExtractConfig)
         -> list[ExtractionResult]
@@ -22,7 +22,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from services.models import (
-    CommitDiff,
+    Diff,
     ExtractionError,
     ExtractionResult,
     FileChange,
@@ -166,9 +166,9 @@ class TestExtractChangedAdrs:
         )
         mock_extractor_cls.return_value = mock_extractor
 
-        diff = CommitDiff(
-            commit_sha="abc123",
-            parent_sha="abc122",
+        diff = Diff(
+            to_sha="abc123",
+            from_sha="abc122",
             changed_files=[
                 FileChange(path="docs/adr/ADR-001-mysql-storage.md", status="modified"),
                 FileChange(path="app/services/user.py", status="modified"),
@@ -177,7 +177,7 @@ class TestExtractChangedAdrs:
                 "docs/adr/ADR-001-mysql-storage.md": ADR_MYSQL_TEXT.encode(),
                 "app/services/user.py": PYTHON_SOURCE,
             },
-            parent_contents={},
+            from_contents={},
         )
 
         config = LangExtractConfig(api_key_env="TEST_API_KEY")
@@ -192,9 +192,9 @@ class TestExtractChangedAdrs:
         """A diff with no ADR files returns an empty list."""
         from services.extract import LangExtractConfig, extract_changed_adrs
 
-        diff = CommitDiff(
-            commit_sha="abc123",
-            parent_sha="abc122",
+        diff = Diff(
+            to_sha="abc123",
+            from_sha="abc122",
             changed_files=[
                 FileChange(path="app/services/user.py", status="modified"),
                 FileChange(path="Makefile", status="modified"),
@@ -203,7 +203,7 @@ class TestExtractChangedAdrs:
                 "app/services/user.py": PYTHON_SOURCE,
                 "Makefile": MAKEFILE_SOURCE,
             },
-            parent_contents={},
+            from_contents={},
         )
 
         config = LangExtractConfig(api_key_env="TEST_API_KEY")
@@ -238,9 +238,9 @@ class TestExtractChangedAdrs:
         ]
         mock_extractor_cls.return_value = mock_extractor
 
-        diff = CommitDiff(
-            commit_sha="abc123",
-            parent_sha="abc122",
+        diff = Diff(
+            to_sha="abc123",
+            from_sha="abc122",
             changed_files=[
                 FileChange(path="docs/adr/ADR-001-mysql-storage.md", status="modified"),
                 FileChange(path="docs/adr/ADR-003-auth-middleware.md", status="added"),
@@ -249,7 +249,7 @@ class TestExtractChangedAdrs:
                 "docs/adr/ADR-001-mysql-storage.md": ADR_MYSQL_TEXT.encode(),
                 "docs/adr/ADR-003-auth-middleware.md": ADR_AUTH_TEXT.encode(),
             },
-            parent_contents={},
+            from_contents={},
         )
 
         config = LangExtractConfig(api_key_env="TEST_API_KEY")
@@ -270,9 +270,9 @@ class TestExtractChangedAdrs:
 
         rejected_adr_text = b"# ADR-002: Use MongoDB\n\n## Status\n\nRejected\n\n## Decision\n\nNo.\n"
 
-        diff = CommitDiff(
-            commit_sha="abc123",
-            parent_sha="abc122",
+        diff = Diff(
+            to_sha="abc123",
+            from_sha="abc122",
             changed_files=[
                 FileChange(path="docs/adr/ADR-001-mysql-storage.md", status="modified"),
                 FileChange(path="docs/adr/ADR-002-mongodb.md", status="added"),
@@ -281,7 +281,7 @@ class TestExtractChangedAdrs:
                 "docs/adr/ADR-001-mysql-storage.md": ADR_MYSQL_TEXT.encode(),
                 "docs/adr/ADR-002-mongodb.md": rejected_adr_text,
             },
-            parent_contents={},
+            from_contents={},
         )
 
         config = LangExtractConfig(api_key_env="TEST_API_KEY")

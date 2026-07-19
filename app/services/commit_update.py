@@ -16,7 +16,7 @@ from services.cpt.engine import CPTResult, Violation, detect as cpt_detect
 from services.cpt.diff_processor import process_diff
 from services.cpt.git_adapter import GitAdapter
 from services.graph.connector import GraphStore
-from services.models import ADG, ChangedFQN, CommitDiff, ConstraintEdge, DiffResult, FileChange, FQNKind, FQNNode
+from services.models import ADG, ChangedFQN, Diff, ConstraintEdge, DiffResult, FileChange, FQNKind, FQNNode
 from services.fqn import FQN
 from services.pipeline import adg_with_specificity, augment_immutable
 
@@ -32,8 +32,8 @@ class UpdateResult:
     changed_fqns: list[ChangedFQN]
     dismissals_applied: int
     constraint_edges_preserved: int
-    commit_sha: str
-    parent_sha: str | None
+    to_sha: str
+    from_sha: str | None
 
 
 def merge_preserved_constraints(adg: ADG, constraint_edges: list[ConstraintEdge], project_root: Path | None = None) -> ADG:
@@ -74,7 +74,7 @@ def merge_preserved_constraints(adg: ADG, constraint_edges: list[ConstraintEdge]
 def commit_update(
     store: GraphStore,
     repo_path: Path,
-    commit_sha: str | None = None,
+    to_sha: str | None = None,
 ) -> UpdateResult:
     """Orchestrate the full commit update flow per ADR 013.
 
@@ -121,9 +121,9 @@ def commit_update(
     merged = adg_with_specificity(merged)
 
     # 9. Get commit diff + process
-    commit_diff = GitAdapter().get_commit_diff(repo_path, commit_sha=commit_sha)
-    diff_result = process_diff(commit_diff)
-    merged = augment_immutable(merged, commit_diff)
+    diff = GitAdapter().get_diff(repo_path, to_sha=to_sha)
+    diff_result = process_diff(diff)
+    merged = augment_immutable(merged, diff)
 
     # 10. CPT detect
     cpt_result = cpt_detect(diff_result, merged)
@@ -139,6 +139,6 @@ def commit_update(
         changed_fqns=diff_result.changed_fqns,
         dismissals_applied=len(cpt_result.violations) - len(active_violations),
         constraint_edges_preserved=len(constraint_edges),
-        commit_sha=commit_diff.commit_sha,
-        parent_sha=commit_diff.parent_sha,
+        to_sha=diff.to_sha,
+        from_sha=diff.from_sha,
     )
