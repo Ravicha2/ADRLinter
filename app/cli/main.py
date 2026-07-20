@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -16,10 +17,11 @@ from cli.config import RepoConfig, load_config
 from services.adg import parse_repo
 from services.cpt import GitAdapter, process_diff
 from services.cpt.dismissal import Dismissal, filter_dismissed, violation_short_id
+from services.fqn import FQN
 from services.extract import extract_all_adrs
 from services.extract.engine import derive_package_context
 from services.graph.connector import GraphStore
-from services.models import Diff, DiffResult, FQNKind, SymbolicConstraint
+from services.models import ADG, ConstraintEdge, DependencyRole, Diff, DiffResult, Edge, FQNKind, FQNNode, PredicateType, SymbolicConstraint
 from services.commit_update import UpdateResult, commit_update
 from services.pipeline import ADGPipeline, PipelineInputs
 
@@ -72,6 +74,114 @@ def _resolve_repo_path(repo_cfg) -> Path:
     if not path.is_absolute():
         path = config_dir / path
     return path.resolve()
+
+
+def _deserialize_fixture(data: dict) -> tuple[ADG, list[Dismissal]]:
+    """Convert a JSON fixture dict back into ADG + Dismissal objects."""
+    nodes = [
+        FQNNode(
+            fqn=FQN.from_dotted(n["fqn"]),
+            kind=FQNKind(n["kind"]),
+            file_path=n["file_path"],
+            line_start=n["line_start"],
+            line_end=n["line_end"],
+            start_byte=n["start_byte"],
+            end_byte=n["end_byte"],
+            role=DependencyRole(n["role"]),
+        )
+        for n in data["fqn_nodes"]
+    ]
+    edges = [Edge(source=e["source"], target=e["target"], kind=e["kind"]) for e in data["structural_edges"]]
+    constraint_edges = [
+        ConstraintEdge(
+            subject=c["subject"],
+            predicate=PredicateType(c["predicate"]),
+            object=c["object"],
+            justification=c["justification"],
+            adr_id=c["adr_id"],
+            adr_path=c["adr_path"],
+            specificity=c["specificity"],
+        )
+        for c in data["constraint_edges"]
+    ]
+    dismissals = [
+        Dismissal(
+            short_id=d["short_id"],
+            identity_hash=d["identity_hash"],
+            subject=d["subject"],
+            predicate=d["predicate"],
+            object=d["object"],
+            matched_fqn=d["matched_fqn"],
+            adr_id=d["adr_id"],
+            dismissed_at=d["dismissed_at"],
+        )
+        for d in data["dismissals"]
+    ]
+    return ADG(nodes=nodes, edges=edges, constraint_edges=constraint_edges), dismissals
+
+
+def _serialize_fixture(adg: ADG, dismissals: list[Dismissal]) -> dict:
+    """Convert ADG + dismissals into a deterministic JSON-serializable dict."""
+    fqn_nodes = sorted(
+        [
+            {
+                "fqn": str(n.fqn),
+                "kind": n.kind.value,
+                "file_path": n.file_path,
+                "line_start": n.line_start,
+                "line_end": n.line_end,
+                "start_byte": n.start_byte,
+                "end_byte": n.end_byte,
+                "role": n.role.value,
+            }
+            for n in adg.nodes
+        ],
+        key=lambda d: d["fqn"],
+    )
+    structural_edges = sorted(
+        [
+            {"source": e.source, "target": e.target, "kind": e.kind}
+            for e in adg.edges
+        ],
+        key=lambda d: (d["source"], d["target"], d["kind"]),
+    )
+    constraint_edges = sorted(
+        [
+            {
+                "subject": c.subject,
+                "predicate": c.predicate.value,
+                "object": c.object,
+                "justification": c.justification,
+                "adr_id": c.adr_id,
+                "adr_path": c.adr_path,
+                "specificity": c.specificity,
+            }
+            for c in adg.constraint_edges
+        ],
+        key=lambda d: (d["subject"], d["predicate"], d["object"], d["adr_id"]),
+    )
+    dismissal_dicts = sorted(
+        [
+            {
+                "short_id": d.short_id,
+                "identity_hash": d.identity_hash,
+                "subject": d.subject,
+                "predicate": d.predicate,
+                "object": d.object,
+                "matched_fqn": d.matched_fqn,
+                "adr_id": d.adr_id,
+                "dismissed_at": d.dismissed_at,
+            }
+            for d in dismissals
+        ],
+        key=lambda d: d["identity_hash"],
+    )
+    return {
+        "fqn_nodes": fqn_nodes,
+        "structural_edges": structural_edges,
+        "constraint_edges": constraint_edges,
+        "dismissals": dismissal_dicts,
+    }
 
 
 def _run_detection(repo: str, commit: str | None, base: str | None = None, head: str | None = None) -> DetectionResult:
@@ -490,11 +600,38 @@ def seed_build(
 @seed_app.command("restore")
 def seed_restore(
     repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
+    input_path: str = typer.Option(..., "--input", "-i", help="Path to JSON fixture file"),
 ) -> None:
-    """Restore an ADG seed snapshot into Neo4j."""
+    """Restore an ADG seed snapshot from a JSON fixture file into Neo4j."""
     _get_repo(repo)
-    console.print(f"[bold]Restoring[/] seed for [cyan]{repo}[/]")
-    console.print("[dim]Not implemented yet.[/]")
+
+    fixture_file = Path(input_path)
+    if not fixture_file.exists():
+        console.print(f"[red]Error:[/] Fixture file not found: {fixture_file}")
+        raise typer.Exit(code=1)
+
+    data = json.loads(fixture_file.read_text())
+    adg, dismissals = _deserialize_fixture(data)
+
+    store = GraphStore(
+        uri=os.getenv("NEO4J_URI", "bolt://neo4j:7687"),
+        user=os.getenv("NEO4J_USER", "neo4j"),
+        password=os.getenv("NEO4J_PASSWORD", "password"),
+        database=os.getenv("NEO4J_DATABASE", "neo4j"),
+    )
+    store.connect()
+    store.create_schema()
+    store.clear_all()
+    store.store_adg(adg)
+    for d in dismissals:
+        store.store_dismissal(d)
+    store.close()
+
+    console.print(f"[bold green]Restored[/] seed for [cyan]{repo}[/]: "
+                  f"{len(adg.nodes)} nodes, "
+                  f"{len(adg.edges)} edges, "
+                  f"{len(adg.constraint_edges)} constraint edges, "
+                  f"{len(dismissals)} dismissals")
 
 
 @seed_app.command("list")
@@ -506,3 +643,35 @@ def seed_list() -> None:
         return
     for repo in config.repos:
         console.print(f"  [cyan]{repo.id}[/] ({repo.size}) - {repo.url}")
+
+
+@seed_app.command("export")
+def seed_export(
+    repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
+    output: str = typer.Option(..., "--output", "-o", help="Output path for JSON fixture file"),
+) -> None:
+    """Export ADG seed snapshot from Neo4j to a JSON fixture file."""
+    _get_repo(repo)
+
+    store = GraphStore(
+        uri=os.getenv("NEO4J_URI", "bolt://neo4j:7687"),
+        user=os.getenv("NEO4J_USER", "neo4j"),
+        password=os.getenv("NEO4J_PASSWORD", "password"),
+        database=os.getenv("NEO4J_DATABASE", "neo4j"),
+    )
+    store.connect()
+    adg = store.load_adg()
+    dismissals = store.load_dismissals()
+    store.close()
+
+    fixture = _serialize_fixture(adg, dismissals)
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(json.dumps(fixture, indent=2, sort_keys=True) + "\n")
+
+    console.print(f"[bold green]Exported[/] seed for [cyan]{repo}[/]: "
+                  f"{len(fixture['fqn_nodes'])} nodes, "
+                  f"{len(fixture['structural_edges'])} edges, "
+                  f"{len(fixture['constraint_edges'])} constraint edges, "
+                  f"{len(fixture['dismissals'])} dismissals")
+    console.print(f"  -> {output_path}")
