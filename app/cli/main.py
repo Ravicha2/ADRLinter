@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 from dataclasses import dataclass
@@ -15,7 +16,8 @@ from rich.table import Table
 from cli.config import RepoConfig, load_config
 from services.adg import parse_repo
 from services.cpt import GitAdapter, process_diff
-from services.cpt.dismissal import Dismissal, filter_dismissed, violation_short_id
+from services.cpt.dismissal import Dismissal, compute_identity_hash, filter_dismissed, violation_identity, violation_short_id
+from services.cpt.resolution import Violation
 from services.extract import extract_all_adrs
 from services.extract.engine import derive_package_context
 from services.graph.connector import GraphStore
@@ -24,6 +26,32 @@ from services.commit_update import UpdateResult, commit_update
 from services.pipeline import ADGPipeline, PipelineInputs
 
 console = Console()
+
+
+def _violation_to_dict(v: Violation) -> dict:
+    return {
+        "short_id": violation_short_id(v),
+        "identity_hash": compute_identity_hash(violation_identity(v)),
+        "identity_key": violation_identity(v),
+        "adr_id": v.constraint.adr_id,
+        "predicate": v.constraint.predicate.value,
+        "subject": v.constraint.subject,
+        "object": v.constraint.object,
+        "matched_fqn": str(v.matched_fqn),
+        "changed_fqn": str(v.changed_fqn),
+        "change_type": v.change_type,
+        "match_status": v.match_status.value,
+        "evidence": v.evidence,
+    }
+
+
+def _constraint_to_dict(c) -> dict:
+    return {
+        "adr_id": c.adr_id,
+        "predicate": c.predicate.value,
+        "subject": c.subject,
+        "object": c.object,
+    }
 
 
 @dataclass
@@ -135,6 +163,7 @@ def detect(
     commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
     base: str | None = typer.Option(None, "--base", help="Base ref for PR diff (requires --head)"),
     head: str | None = typer.Option(None, "--head", help="Head ref for PR diff (requires --base)"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Run CPT violation detection on a repository."""
     if (base and not head) or (head and not base):
@@ -142,6 +171,32 @@ def detect(
         raise typer.Exit(code=1)
 
     dr = _run_detection(repo, commit, base=base, head=head)
+
+    if json_output:
+        output = {
+            "repo": repo,
+            "to_sha": dr.diff.to_sha,
+            "from_sha": dr.diff.from_sha,
+            "changed_files": [
+                {"path": f.path, "status": f.status, "old_path": f.old_path}
+                for f in dr.diff_result.changed_files
+            ],
+            "changed_fqns": [
+                {
+                    "fqn": str(f.fqn),
+                    "change_type": f.change_type,
+                    "file_path": f.file_path,
+                    "enclosing_class": str(f.enclosing_class) if f.enclosing_class else None,
+                    "enclosing_module": str(f.enclosing_module),
+                }
+                for f in dr.diff_result.changed_fqns
+            ],
+            "violations": [_violation_to_dict(v) for v in dr.cpt_result.violations],
+            "orphans": [_constraint_to_dict(c) for c in dr.cpt_result.orphans],
+            "self_loop_constraints": [_constraint_to_dict(c) for c in dr.cpt_result.self_loop_constraints],
+        }
+        console.print_json(json.dumps(output))
+        return
 
     if base and head:
         console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] ({base}...{head})")
@@ -352,6 +407,7 @@ def report(
 def violation_list(
     repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
     commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """List violations, filtering out dismissed ones."""
     console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
@@ -370,6 +426,19 @@ def violation_list(
     console.print(f"  Loaded {len(dismissals)} dismissal(s) from Neo4j")
 
     active = filter_dismissed(dr.cpt_result.violations, dismissals)
+
+    if json_output:
+        output = {
+            "repo": repo,
+            "commit": commit or dr.diff.to_sha,
+            "total_violations": len(dr.cpt_result.violations),
+            "dismissed_count": len(dr.cpt_result.violations) - len(active),
+            "active_violations": [_violation_to_dict(v) for v in active],
+            "orphans": [_constraint_to_dict(c) for c in dr.cpt_result.orphans],
+            "self_loop_constraints": [_constraint_to_dict(c) for c in dr.cpt_result.self_loop_constraints],
+        }
+        console.print_json(json.dumps(output))
+        return
 
     if active:
         table = Table(title="Active Violations", show_lines=True)
@@ -404,6 +473,7 @@ def violation_dismiss(
     short_id: str = typer.Argument(..., help="Short ID (5 hex chars) of the violation to dismiss"),
     repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
     commit: str | None = typer.Option(None, "--commit", "-c", help="Commit SHA (default: HEAD)"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Dismiss a violation by its short ID. Violations are ephemeral; must match current detection results."""
     console.print(f"[bold]Detecting[/] violations in [cyan]{repo}[/] (commit: {commit or 'HEAD'})")
@@ -416,6 +486,9 @@ def violation_dismiss(
             break
 
     if match is None:
+        if json_output:
+            console.print_json(json.dumps({"error": f"No violation with short_id '{short_id}' found"}))
+            raise typer.Exit(code=1)
         console.print(f"[red]Error:[/] No violation with short_id '{short_id}' found in current detection results")
         raise typer.Exit(code=1)
 
@@ -431,6 +504,20 @@ def violation_dismiss(
     store.store_dismissal(dismissal)
     store.close()
 
+    if json_output:
+        output = {
+            "short_id": dismissal.short_id,
+            "identity_hash": dismissal.identity_hash,
+            "predicate": dismissal.predicate,
+            "subject": dismissal.subject,
+            "object": dismissal.object,
+            "matched_fqn": dismissal.matched_fqn,
+            "adr_id": dismissal.adr_id,
+            "dismissed_at": dismissal.dismissed_at,
+        }
+        console.print_json(json.dumps(output))
+        return
+
     console.print(f"[green]Dismissed[/] violation {short_id}: {match.constraint.predicate.value} "
                   f"{match.constraint.subject} -> {match.constraint.object}")
 
@@ -438,6 +525,7 @@ def violation_dismiss(
 @seed_app.command("build")
 def seed_build(
     repo: str = typer.Option(..., "--repo", "-r", help="Repository ID from repos.yaml"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON"),
 ) -> None:
     """Build an ADG seed snapshot from scratch."""
     config = load_config()
@@ -485,6 +573,21 @@ def seed_build(
     console.print(f"  Cleared {deleted} previous dismissal(s)")
     store.store_adg(merged)
     store.close()
+
+    if json_output:
+        output = {
+            "repo": repo,
+            "nodes": len(merged.nodes),
+            "edges": len(merged.edges),
+            "constraint_edges": len(merged.constraint_edges),
+            "external_nodes": external_count,
+            "constraints_extracted": len(all_constraints),
+            "extraction_errors": total_errors,
+            "dismissals_cleared": deleted,
+        }
+        console.print_json(json.dumps(output))
+        return
+
     console.print(f"[bold green]Done[/] Seed built for [cyan]{repo}[/]")
 
 @seed_app.command("restore")

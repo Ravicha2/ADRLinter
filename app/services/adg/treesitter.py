@@ -247,6 +247,7 @@ def parse_repo(repo_path: Path) -> ADG:
     py_files = sorted(
         p for p in repo_path.rglob("*.py")
         if not _is_test_file(p, repo_path)
+        and not any(part.startswith(".") for part in p.relative_to(repo_path).parts)
     )
     parser = Parser(PY_LANGUAGE)
 
